@@ -31,7 +31,7 @@ jobs:
 
       # Step 4: Run the Puppeteer script
       - name: Run BNI Automation Script
-        run: node bni_puppeteer.js # <-- IMPORTANT: Change to your JS file's name
+        run: node bni_pupeteer.js # <-- IMPORTANT: Change to your JS file's name
         env:
           BNI_BROWSERLESS_API_KEY: ${{ secrets.BNI_BROWSERLESS_API_KEY }}
           BNI_USERNAME: ${{ secrets.BNI_USERNAME }}
