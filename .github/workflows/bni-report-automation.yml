@@ -29,6 +29,21 @@ jobs:
       - name: Install dependencies
         run: npm install puppeteer-core
 
+      # New step for debugging
+      - name: Verify Secrets are Loaded
+        run: |
+          if [ -z "${{ secrets.BNI_BROWSERLESS_API_KEY }}" ]; then
+            echo "Browserless API Key is NOT set."
+            exit 1
+          else
+            echo "Browserless API Key is set."
+          fi
+          if [ -z "${{ secrets.BNI_USERNAME }}" ]; then
+            echo "BNI Username is NOT set."
+            exit 1
+          else
+            echo "BNI Username is set."
+          fi
       # Step 4: Run the Puppeteer script
       - name: Run BNI Automation Script
         run: node bni_pupeteer.js # <-- IMPORTANT: Change to your JS file's name
