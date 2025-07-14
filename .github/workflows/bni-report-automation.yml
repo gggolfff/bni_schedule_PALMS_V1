@@ -1,0 +1,45 @@
+# .github/workflows/bni-report-automation.yml
+
+name: BNI PALMS Report Automation
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+  # Schedule the workflow to run every Friday at 7:00 AM UTC
+  schedule:
+    - cron: '0 7 * * 5'
+
+jobs:
+  run-bni-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Check out your repository code
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Node.js environment
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Use a recent LTS version of Node.js
+
+      # Step 3: Install project dependencies
+      - name: Install dependencies
+        run: npm install puppeteer-core
+
+      # Step 4: Run the Puppeteer script
+      - name: Run BNI Automation Script
+        run: node bni_puppeteer.js # <-- IMPORTANT: Change to your JS file's name
+        env:
+          BNI_BROWSERLESS_API_KEY: ${{ secrets.BNI_BROWSERLESS_API_KEY }}
+          BNI_USERNAME: ${{ secrets.BNI_USERNAME }}
+          BNI_PASSWORD: ${{ secrets.BNI_PASSWORD }}
+
+      # Step 5: Upload the downloaded report as an artifact
+      - name: Upload Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bni-slips-audit-report # The name of the artifact
+          path: downloads/ # The path to the folder containing the report
