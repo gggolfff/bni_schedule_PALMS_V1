@@ -1,38 +1,36 @@
 /**
- * @file BNI Connect Puppeteer Automation Script (v28 - GitHub Actions Ready)
+ * @file BNI Connect Puppeteer Automation Script (v29 - Local GitHub Actions)
  * @description This script automates logging into BNI Connect, downloading the
  * "Slips Audit Report", and saving it to a local folder. It is designed to be
- * run in a GitHub Actions environment.
+ * run in a GitHub Actions environment using a locally installed browser.
  *
- * This version reads credentials from environment variables for security and
- * saves the output file to a local path to be uploaded as a GitHub Artifact.
+ * This version uses the full `puppeteer` package and `puppeteer.launch()`
+ * to run a browser directly on the GitHub runner, removing the need for
+ * an external service like Browserless.io.
  *
- * @requires puppeteer-core
+ * @requires puppeteer
  * @requires fs
  * @requires path
  */
 
 // --- 1. Import required modules ---
-const puppeteer = require('puppeteer-core');
+const puppeteer = require('puppeteer'); // Use the full puppeteer package
 const fs = require('fs');
 const path = require('path');
 
 // --- 2. CONFIGURATION ---
-// Credentials and API keys are now read from environment variables for security.
-// You will set these up as "Secrets" in your GitHub repository settings.
-const BNI_BROWSERLESS_API_KEY = process.env.BNI_BROWSERLESS_API_KEY;
+// Credentials are read from environment variables (GitHub Secrets).
 const BNI_USERNAME = process.env.BNI_USERNAME;
 const BNI_PASSWORD = process.env.BNI_PASSWORD;
 
 // The local folder within the GitHub Actions runner to save the file.
-// This will be uploaded as an artifact.
 const LOCAL_DOWNLOAD_FOLDER = path.resolve('./downloads');
 // --- END: CONFIGURATION ---
 
 
 /**
  * Intercepts a download request and returns the file's content as a buffer.
- * @param {import('puppeteer-core').Page} page - The Puppeteer page object.
+ * @param {import('puppeteer').Page} page - The Puppeteer page object.
  * @returns {Promise<{buffer: Buffer, filename: string}>} A promise that resolves with the file buffer and filename.
  */
 const interceptDownload = (page) => {
@@ -68,25 +66,26 @@ const interceptDownload = (page) => {
   let browser;
   let page;
 
-  console.log('--- Starting BNI Connect Automation Script for GitHub Actions ---');
+  console.log('--- Starting BNI Connect Automation Script (Local Runner) ---');
 
   // --- 3. Basic Validation ---
-  if (!BNI_BROWSERLESS_API_KEY || !BNI_USERNAME || !BNI_PASSWORD) {
-    console.error('!!! CRITICAL: Missing one or more required environment variables (BNI_BROWSERLESS_API_KEY, BNI_USERNAME, BNI_PASSWORD).');
-    process.exit(1); // Exit with an error code
+  if (!BNI_USERNAME || !BNI_PASSWORD) {
+    console.error('!!! CRITICAL: Missing BNI_USERNAME or BNI_PASSWORD environment variables.');
+    process.exit(1);
   }
 
   try {
-    // --- 4. Connect to Browserless.io ---
-    console.log('Connecting to Browserless.io...');
-    browser = await puppeteer.connect({
-      browserWSEndpoint: `wss://chrome.browserless.io?token=${BNI_BROWSERLESS_API_KEY}`,
+    // --- 4. Launch a local browser instance ---
+    console.log('Launching local Puppeteer browser...');
+    browser = await puppeteer.launch({
+      // These args are required to run in a Linux container like GitHub Actions
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
 
     page = await browser.newPage();
     page.setDefaultTimeout(90000);
     await page.setViewport({ width: 1280, height: 960 });
-    console.log('Connected to remote browser and page created.');
+    console.log('Local browser launched and page created.');
 
     // --- 5. Login to BNI Connect ---
     console.log('Navigating to the login page...');
@@ -203,7 +202,7 @@ const interceptDownload = (page) => {
         console.log(`Creating local download folder: ${LOCAL_DOWNLOAD_FOLDER}`);
         fs.mkdirSync(LOCAL_DOWNLOAD_FOLDER, { recursive: true });
     }
-    const destinationPath = path.join(LOCAL_DOWNLOAD_FOLDER, filename);
+    const destinationPath = path.join(LOKAL_DOWNLOAD_FOLDER, filename);
     console.log(`Writing file to local path: ${destinationPath}`);
     fs.writeFileSync(destinationPath, buffer);
     console.log(`✅ File successfully saved locally.`);
@@ -220,8 +219,8 @@ const interceptDownload = (page) => {
     process.exit(1);
   } finally {
     if (browser) {
-      console.log('--- Disconnecting from browser ---');
-      await browser.disconnect();
+      console.log('--- Closing browser ---');
+      await browser.close(); // Use close() for launched browsers
     }
     console.log('--- Script execution finished ---');
   }
