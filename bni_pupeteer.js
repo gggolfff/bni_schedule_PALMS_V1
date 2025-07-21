@@ -1,12 +1,12 @@
 /**
- * @file BNI Connect Puppeteer Automation Script (v29 - Local GitHub Actions)
+ * @file BNI Connect Puppeteer Automation Script (v38 - Filesystem Download)
  * @description This script automates logging into BNI Connect, downloading the
  * "Slips Audit Report", and saving it to a local folder. It is designed to be
  * run in a GitHub Actions environment using a locally installed browser.
  *
- * This version uses the full `puppeteer` package and `puppeteer.launch()`
- * to run a browser directly on the GitHub runner, removing the need for
- * an external service like Browserless.io.
+ * This version fixes the "ProtocolError" by abandoning download interception.
+ * Instead, it instructs the browser to download the file directly to the local
+* filesystem and then waits for the file to appear, which is more reliable.
  *
  * @requires puppeteer
  * @requires fs
@@ -29,35 +29,34 @@ const LOCAL_DOWNLOAD_FOLDER = path.resolve('./downloads');
 
 
 /**
- * Intercepts a download request and returns the file's content as a buffer.
- * @param {import('puppeteer').Page} page - The Puppeteer page object.
- * @returns {Promise<{buffer: Buffer, filename: string}>} A promise that resolves with the file buffer and filename.
+ * Polls a directory to wait for a file to be downloaded.
+ * @param {string} dirPath - The absolute path to the download directory.
+ * @param {number} timeout - The maximum time to wait in milliseconds.
+ * @returns {Promise<string>} A promise that resolves with the full path of the downloaded file.
  */
-const interceptDownload = (page) => {
+const waitForFile = (dirPath, timeout = 45000) => {
+  console.log(`Waiting for download to appear in: ${dirPath}`);
+  const startTime = Date.now();
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-        reject(new Error('Download intercept timeout after 45 seconds.'));
-    }, 45000);
+    const interval = setInterval(() => {
+      try {
+        const files = fs.readdirSync(dirPath);
+        // Filter out temporary chrome download files
+        const completedFiles = files.filter(file => !file.endsWith('.crdownload') && file !== '.com.google.Chrome.??????');
 
-    page.on('response', async (response) => {
-      const disposition = response.headers()['content-disposition'];
-      if (disposition && disposition.includes('attachment')) {
-        try {
-            console.log('Download response intercepted.');
-            const filenameMatch = disposition.match(/filename="(.+?)"/);
-            const filename = filenameMatch ? filenameMatch[1] : 'downloaded-file.csv';
-            console.log(`Detected filename: ${filename}`);
-            const buffer = await response.buffer();
-            console.log('File data captured in buffer.');
-            clearTimeout(timeout);
-            page.removeAllListeners('response');
-            resolve({ buffer, filename });
-        } catch (err) {
-            clearTimeout(timeout);
-            reject(err);
+        if (completedFiles.length > 0) {
+          clearInterval(interval);
+          console.log(`Download detected: ${completedFiles[0]}`);
+          resolve(path.join(dirPath, completedFiles[0]));
+        } else if (Date.now() - startTime > timeout) {
+          clearInterval(interval);
+          reject(new Error(`Download timeout: No file appeared in ${dirPath} after ${timeout / 1000} seconds.`));
         }
+      } catch (err) {
+        clearInterval(interval);
+        reject(err);
       }
-    });
+    }, 1000); // Check every second
   });
 };
 
@@ -78,7 +77,6 @@ const interceptDownload = (page) => {
     // --- 4. Launch a local browser instance ---
     console.log('Launching local Puppeteer browser...');
     browser = await puppeteer.launch({
-      // These args are required to run in a Linux container like GitHub Actions
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
 
@@ -87,62 +85,51 @@ const interceptDownload = (page) => {
     await page.setViewport({ width: 1280, height: 960 });
     console.log('Local browser launched and page created.');
 
-    // --- 5. Login to BNI Connect ---
+    // --- 5. Configure Download Behavior ---
+    // Create the download directory if it doesn't exist
+    if (!fs.existsSync(LOCAL_DOWNLOAD_FOLDER)) {
+      fs.mkdirSync(LOCAL_DOWNLOAD_FOLDER, { recursive: true });
+    }
+    // Use the Chrome DevTools Protocol to set the download path
+    const client = await page.target().createCDPSession();
+    await client.send('Page.setDownloadBehavior', {
+      behavior: 'allow',
+      downloadPath: LOCAL_DOWNLOAD_FOLDER,
+    });
+    console.log(`Download behavior configured to save files in: ${LOCAL_DOWNLOAD_FOLDER}`);
+
+
+    // --- 6. Login to BNI Connect ---
     console.log('Navigating to the login page...');
     await page.goto('https://www.bniconnectglobal.com/login/', { waitUntil: 'networkidle2' });
 
-    console.log('Entering login credentials...');
+    console.log('Typing login credentials...');
     await page.waitForSelector("input[name='username']", { visible: true });
-    await page.evaluate((user, pass) => {
-        document.querySelector("input[name='username']").value = user;
-        document.querySelector("input[name='password']").value = pass;
-    }, BNI_USERNAME, BNI_PASSWORD);
+    await page.type("input[name='username']", BNI_USERNAME, { delay: 50 });
+    await page.type("input[name='password']", BNI_PASSWORD, { delay: 50 });
 
- console.log('Clicking the login button...');
-    await page.click("button[type='submit']");
+    console.log('Clicking the login button and waiting for navigation...');
+    await Promise.all([
+      page.click("button[type='submit']"),
+      page.waitForNavigation({ waitUntil: 'networkidle0' })
+    ]);
+    console.log('Login successful. Navigated to the dashboard.');
 
-    // LOGIN FIX: Instead of the fragile Promise.all, we now explicitly wait for a
-    // reliable element on the dashboard page to appear. This confirms login success.
-    console.log('Waiting for dashboard to load after login...');
+
+    // --- 7. Find and Click the Legacy Button ---
+    console.log('Starting patient search for the legacy view switch...');
     const legacyIconSelector = '.css-hp1qy7 > svg';
-    await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 60000 });
-    console.log('Login successful, dashboard loaded.');
-
-    // --- 6. Patiently Find and Click the Legacy Button ---
-    console.log('Starting search for the legacy view switch...');
-    const legacyIconSelector = '.css-hp1qy7 > svg';
-    let legacyIcon = null;
-    const maxRetries = 12;
-
-    for (let i = 1; i <= maxRetries; i++) {
-      console.log(`[Attempt ${i}/${maxRetries}] Looking for legacy icon...`);
-      try {
-        legacyIcon = await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 4000 });
-        if (legacyIcon) {
-          console.log('✅ Legacy icon found!');
-          break;
-        }
-      } catch (e) {
-        console.log(`Icon not found on attempt ${i}.`);
-        if (i < maxRetries) {
-          console.log('Reloading page and trying again...');
-          await page.reload({ waitUntil: 'networkidle0' });
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-      }
-    }
-
-    if (!legacyIcon) {
-      throw new Error(`Could not find the legacy switch icon after ${maxRetries} attempts.`);
-    }
-
+    await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 30000 });
+    console.log('✅ Legacy icon found!');
+    
     console.log('Clicking icon to switch to legacy home...');
-    await legacyIcon.click();
+    await page.click(legacyIconSelector);
+
     await page.waitForSelector('a[href*="operationsHome"]', { visible: true });
     console.log('Successfully switched to legacy view.');
 
 
-    // --- 7. Navigate to PALMS Report ---
+    // --- 8. Navigate to PALMS Report ---
     console.log('Navigating through Operations -> Chapter...');
     await page.click('a[href="#ui-tabs-3"]');
     const enterPalmsSelector = 'a[href*="operationsChapterEnterPalms"]';
@@ -153,7 +140,7 @@ const interceptDownload = (page) => {
     console.log('Navigated to the PALMS entry page.');
 
 
-    // --- 8. Set Date and Search ---
+    // --- 9. Set Date and Search ---
     console.log('Calculating date for the upcoming Friday...');
     const upcomingFriday = await page.evaluate(() => {
       const today = new Date();
@@ -178,10 +165,7 @@ const interceptDownload = (page) => {
     console.log('Search results loaded.');
 
 
-    // --- 9. Download the Report ---
-    console.log('Setting up download interceptor...');
-    const downloadPromise = interceptDownload(page);
-
+    // --- 10. Download the Report ---
     console.log('Clicking the "Slips Audit Report" link...');
     await page.click('#auditLink');
 
@@ -194,35 +178,40 @@ const interceptDownload = (page) => {
     await frame.waitForSelector('#links_1', { visible: true });
     await frame.click('#links_1');
 
-    console.log('Waiting for download data to be captured...');
-    const { buffer, filename } = await downloadPromise;
-
-
-    // --- 10. Save File Locally ---
-    console.log(`Processing downloaded file: ${filename}`);
-    if (!fs.existsSync(LOCAL_DOWNLOAD_FOLDER)) {
-        console.log(`Creating local download folder: ${LOCAL_DOWNLOAD_FOLDER}`);
-        fs.mkdirSync(LOCAL_DOWNLOAD_FOLDER, { recursive: true });
-    }
-    const destinationPath = path.join(LOKAL_DOWNLOAD_FOLDER, filename);
-    console.log(`Writing file to local path: ${destinationPath}`);
-    fs.writeFileSync(destinationPath, buffer);
-    console.log(`✅ File successfully saved locally.`);
+    // Wait for the file to appear in the download directory
+    const downloadedFilePath = await waitForFile(LOCAL_DOWNLOAD_FOLDER);
+    console.log(`✅ File successfully downloaded to: ${downloadedFilePath}`);
+    // No need to save the file, it's already in the correct folder for artifact upload.
 
 
     // --- 11. Cleanup ---
-    console.log('Closing the report modal...');
-    await page.click('.ui-dialog-titlebar-close');
-    console.log('Report modal closed.');
+    console.log('Attempting to close the report modal if it exists...');
+    try {
+      const closeModalSelector = '.ui-dialog-titlebar-close';
+      await page.waitForSelector(closeModalSelector, { visible: true, timeout: 5000 });
+      await page.click(closeModalSelector);
+      console.log('Report modal closed.');
+    } catch (e) {
+      console.log('Report modal not found or already closed. Continuing...');
+    }
 
   } catch (error) {
     console.error('❌ An error occurred during the automation script:');
+    if (page) {
+        const errorScreenshotPath = './error_screenshot.png';
+        try {
+            await page.screenshot({ path: errorScreenshotPath, fullPage: true });
+            console.error(`📷 A final error screenshot has been saved to: ${errorScreenshotPath}`);
+        } catch (e) {
+            console.error('Could not take a final screenshot.', e);
+        }
+    }
     console.error(error);
     process.exit(1);
   } finally {
     if (browser) {
       console.log('--- Closing browser ---');
-      await browser.close(); // Use close() for launched browsers
+      await browser.close();
     }
     console.log('--- Script execution finished ---');
   }
