@@ -1,12 +1,12 @@
 /**
- * @file BNI Connect Puppeteer Automation Script (v37 - Enhanced Download Logic)
+ * @file BNI Connect Puppeteer Automation Script (v38 - Filesystem Download)
  * @description This script automates logging into BNI Connect, downloading the
  * "Slips Audit Report", and saving it to a local folder. It is designed to be
  * run in a GitHub Actions environment using a locally installed browser.
  *
- * This version incorporates a much more robust download interception function
- * with advanced error handling and diagnostics, including screenshots and an
- * HTML dump on failure, to reliably capture the file.
+ * This version fixes the "ProtocolError" by abandoning download interception.
+ * Instead, it instructs the browser to download the file directly to the local
+* filesystem and then waits for the file to appear, which is more reliable.
  *
  * @requires puppeteer
  * @requires fs
@@ -29,95 +29,36 @@ const LOCAL_DOWNLOAD_FOLDER = path.resolve('./downloads');
 
 
 /**
- * Intercepts a download request with robust error handling and diagnostics.
- * @param {import('puppeteer').Page} page - The main Puppeteer page object.
- * @param {import('puppeteer').Frame} frame - The frame containing the download button.
- * @param {string} exportButtonSelector - The selector for the download button inside the frame.
- * @returns {Promise<{buffer: Buffer, filename: string}>} A promise that resolves with the file buffer and filename.
+ * Polls a directory to wait for a file to be downloaded.
+ * @param {string} dirPath - The absolute path to the download directory.
+ * @param {number} timeout - The maximum time to wait in milliseconds.
+ * @returns {Promise<string>} A promise that resolves with the full path of the downloaded file.
  */
-async function interceptDownload(page, frame, exportButtonSelector) {
-    console.log('Attempting to intercept download...');
-    try {
-        // Ensure export button is available and clickable within the frame
-        await frame.waitForSelector(exportButtonSelector, { visible: true, timeout: 15000 });
-        console.log('Export button found and visible.');
+const waitForFile = (dirPath, timeout = 45000) => {
+  console.log(`Waiting for download to appear in: ${dirPath}`);
+  const startTime = Date.now();
+  return new Promise((resolve, reject) => {
+    const interval = setInterval(() => {
+      try {
+        const files = fs.readdirSync(dirPath);
+        // Filter out temporary chrome download files
+        const completedFiles = files.filter(file => !file.endsWith('.crdownload') && file !== '.com.google.Chrome.??????');
 
-        // Start listening for the download
-        const downloadPromise = new Promise(async (resolve, reject) => {
-            const timeout = setTimeout(async () => {
-                try {
-                    // Save diagnostics on timeout
-                    console.error('Download intercept timeout after 45 seconds.');
-                    const currentUrl = await page.url();
-                    console.error('Current page URL:', currentUrl);
-                    
-                    await page.screenshot({ path: 'error_download_timeout.png', fullPage: true });
-                    console.error('📷 Timeout screenshot saved to error_download_timeout.png');
-
-                    const pageContent = await page.content();
-                    fs.writeFileSync('error_page_dump.html', pageContent);
-                    console.error('📄 HTML page content saved to error_page_dump.html');
-
-                    reject(new Error(`Download intercept timeout after 45 seconds. URL: ${currentUrl}`));
-                } catch (diagError) {
-                    reject(new Error(`Download intercept timeout, and failed to capture diagnostics: ${diagError.message}`));
-                }
-            }, 45000);
-
-            // Attach the listener to the MAIN PAGE
-            page.on('response', async (response) => {
-                const headers = response.headers();
-                const disposition = headers['content-disposition'];
-                const contentType = headers['content-type'];
-
-                const isAttachment = disposition && disposition.includes('attachment');
-                const isDataFile = contentType && (contentType.includes('csv') || contentType.includes('excel') || contentType.includes('spreadsheetml') || contentType.includes('application/octet-stream'));
-
-                if (isAttachment || isDataFile) {
-                    console.log(`Download detected! Content-Type: ${contentType}`);
-                    try {
-                        let filename = 'downloaded-file.tmp';
-                        if (disposition) {
-                            const filenameMatch = disposition.match(/filename="(.+?)"/);
-                            if (filenameMatch) filename = filenameMatch[1];
-                        } else if (isDataFile) {
-                            const extension = contentType.includes('csv') ? 'csv' : 'xls';
-                            filename = `report-${Date.now()}.${extension}`;
-                        }
-                        
-                        const buffer = await response.buffer();
-                        console.log(`File data captured for: ${filename}`);
-                        
-                        clearTimeout(timeout);
-                        page.removeAllListeners('response');
-                        resolve({ buffer, filename });
-                    } catch (bufferError) {
-                        clearTimeout(timeout);
-                        reject(bufferError);
-                    }
-                }
-            });
-
-            // Trigger the download by clicking the button INSIDE THE FRAME
-            try {
-                console.log('Clicking export button to trigger download...');
-                await frame.click(exportButtonSelector);
-            } catch (clickErr) {
-                clearTimeout(timeout);
-                await page.screenshot({ path: 'error_download_click.png' });
-                reject(new Error('Failed to click export button: ' + clickErr.message));
-            }
-        });
-
-        // Wait for the promise to resolve with the download data
-        return await downloadPromise;
-
-    } catch (err) {
-        console.error('Download interception failed:', err);
-        await page.screenshot({ path: 'error_download_final.png', fullPage: true });
-        throw err; // Re-throw the error to fail the script
-    }
-}
+        if (completedFiles.length > 0) {
+          clearInterval(interval);
+          console.log(`Download detected: ${completedFiles[0]}`);
+          resolve(path.join(dirPath, completedFiles[0]));
+        } else if (Date.now() - startTime > timeout) {
+          clearInterval(interval);
+          reject(new Error(`Download timeout: No file appeared in ${dirPath} after ${timeout / 1000} seconds.`));
+        }
+      } catch (err) {
+        clearInterval(interval);
+        reject(err);
+      }
+    }, 1000); // Check every second
+  });
+};
 
 
 (async () => {
@@ -144,7 +85,21 @@ async function interceptDownload(page, frame, exportButtonSelector) {
     await page.setViewport({ width: 1280, height: 960 });
     console.log('Local browser launched and page created.');
 
-    // --- 5. Login to BNI Connect ---
+    // --- 5. Configure Download Behavior ---
+    // Create the download directory if it doesn't exist
+    if (!fs.existsSync(LOCAL_DOWNLOAD_FOLDER)) {
+      fs.mkdirSync(LOCAL_DOWNLOAD_FOLDER, { recursive: true });
+    }
+    // Use the Chrome DevTools Protocol to set the download path
+    const client = await page.target().createCDPSession();
+    await client.send('Page.setDownloadBehavior', {
+      behavior: 'allow',
+      downloadPath: LOCAL_DOWNLOAD_FOLDER,
+    });
+    console.log(`Download behavior configured to save files in: ${LOCAL_DOWNLOAD_FOLDER}`);
+
+
+    // --- 6. Login to BNI Connect ---
     console.log('Navigating to the login page...');
     await page.goto('https://www.bniconnectglobal.com/login/', { waitUntil: 'networkidle2' });
 
@@ -161,7 +116,7 @@ async function interceptDownload(page, frame, exportButtonSelector) {
     console.log('Login successful. Navigated to the dashboard.');
 
 
-    // --- 6. Find and Click the Legacy Button ---
+    // --- 7. Find and Click the Legacy Button ---
     console.log('Starting patient search for the legacy view switch...');
     const legacyIconSelector = '.css-hp1qy7 > svg';
     await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 30000 });
@@ -174,7 +129,7 @@ async function interceptDownload(page, frame, exportButtonSelector) {
     console.log('Successfully switched to legacy view.');
 
 
-    // --- 7. Navigate to PALMS Report ---
+    // --- 8. Navigate to PALMS Report ---
     console.log('Navigating through Operations -> Chapter...');
     await page.click('a[href="#ui-tabs-3"]');
     const enterPalmsSelector = 'a[href*="operationsChapterEnterPalms"]';
@@ -185,7 +140,7 @@ async function interceptDownload(page, frame, exportButtonSelector) {
     console.log('Navigated to the PALMS entry page.');
 
 
-    // --- 8. Set Date and Search ---
+    // --- 9. Set Date and Search ---
     console.log('Calculating date for the upcoming Friday...');
     const upcomingFriday = await page.evaluate(() => {
       const today = new Date();
@@ -210,7 +165,7 @@ async function interceptDownload(page, frame, exportButtonSelector) {
     console.log('Search results loaded.');
 
 
-    // --- 9. Download the Report ---
+    // --- 10. Download the Report ---
     console.log('Clicking the "Slips Audit Report" link...');
     await page.click('#auditLink');
 
@@ -219,20 +174,14 @@ async function interceptDownload(page, frame, exportButtonSelector) {
     const frame = await iframeElementHandle.contentFrame();
     if (!frame) throw new Error('Could not get content frame of the report iframe.');
 
-    // The new function handles the entire download process
-    const { buffer, filename } = await interceptDownload(page, frame, '#links_1');
+    console.log('Clicking "Export without Headers" inside the iframe...');
+    await frame.waitForSelector('#links_1', { visible: true });
+    await frame.click('#links_1');
 
-
-    // --- 10. Save File Locally ---
-    console.log(`Processing downloaded file: ${filename}`);
-    if (!fs.existsSync(LOCAL_DOWNLOAD_FOLDER)) {
-        console.log(`Creating local download folder: ${LOCAL_DOWNLOAD_FOLDER}`);
-        fs.mkdirSync(LOCAL_DOWNLOAD_FOLDER, { recursive: true });
-    }
-    const destinationPath = path.join(LOCAL_DOWNLOAD_FOLDER, filename);
-    console.log(`Writing file to local path: ${destinationPath}`);
-    fs.writeFileSync(destinationPath, buffer);
-    console.log(`✅ File successfully saved locally.`);
+    // Wait for the file to appear in the download directory
+    const downloadedFilePath = await waitForFile(LOCAL_DOWNLOAD_FOLDER);
+    console.log(`✅ File successfully downloaded to: ${downloadedFilePath}`);
+    // No need to save the file, it's already in the correct folder for artifact upload.
 
 
     // --- 11. Cleanup ---
