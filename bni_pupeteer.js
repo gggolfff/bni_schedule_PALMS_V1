@@ -1,12 +1,11 @@
 /**
- * @file BNI Connect Puppeteer Automation Script (v31 - Resilient Login with Debugging)
+ * @file BNI Connect Puppeteer Automation Script (v32 - More Robust Login)
  * @description This script automates logging into BNI Connect, downloading the
  * "Slips Audit Report", and saving it to a local folder. It is designed to be
  * run in a GitHub Actions environment using a locally installed browser.
  *
- * This version introduces a resilient retry loop for the login process. If it
- * fails to find the expected element after login, it will reload and try again,
- * taking a screenshot on each failure for easier debugging.
+ * This version uses a more reliable login pattern by explicitly waiting for
+ * page navigation to complete as a direct result of the login button click.
  *
  * @requires puppeteer
  * @requires fs
@@ -98,43 +97,27 @@ const interceptDownload = (page) => {
         document.querySelector("input[name='password']").value = pass;
     }, BNI_USERNAME, BNI_PASSWORD);
 
-    console.log('Clicking the login button...');
-    await page.click("button[type='submit']");
+    // LOGIN FIX: Use Promise.all to handle the click and the resulting navigation together.
+    // This is the most reliable way to ensure the script waits for the page to load.
+    console.log('Clicking login button and waiting for navigation to complete...');
+    await Promise.all([
+        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }), // The navigation promise
+        page.click("button[type='submit']")                                   // The action that triggers navigation
+    ]);
+    console.log('Navigation after login is complete.');
 
-    // LOGIN FIX: Implement a resilient retry loop to handle slow loading or intermediate pages.
-    console.log('Waiting for dashboard to load after login...');
+
+    // --- 6. Verify Login and Click the Legacy Button ---
+    console.log('Verifying dashboard has loaded by finding the legacy icon...');
     const legacyIconSelector = '.css-hp1qy7 > svg';
-    let legacyIcon = null;
-    const loginRetries = 3;
-    for (let i = 1; i <= loginRetries; i++) {
-        console.log(`[Login Attempt ${i}/${loginRetries}] Looking for dashboard element...`);
-        try {
-            legacyIcon = await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 30000 });
-            if (legacyIcon) {
-                console.log('✅ Dashboard element found! Login successful.');
-                break; // Exit the loop on success
-            }
-        } catch (err) {
-            console.warn(`Dashboard element not found on attempt ${i}.`);
-            const debugScreenshotPath = `./debug_screenshot_attempt_${i}.png`;
-            await page.screenshot({ path: debugScreenshotPath, fullPage: true });
-            console.warn(`📷 A debug screenshot has been saved to: ${debugScreenshotPath}`);
-            console.warn(`Current page URL is: ${page.url()}`);
-
-            if (i === loginRetries) {
-                throw new Error(`Login failed after ${loginRetries} attempts. Could not find the dashboard element.`);
-            }
-
-            console.log('Reloading page and trying again...');
-            await page.reload({ waitUntil: 'networkidle0' });
-        }
-    }
-
+    // Wait for the icon, then get a handle to it for clicking.
+    await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 30000 });
+    const legacyIcon = await page.$(legacyIconSelector);
     if (!legacyIcon) {
-        throw new Error('Could not find the legacy switch icon after all login attempts.');
+        throw new Error('Could not find the legacy switch icon after successful navigation.');
     }
+    console.log('✅ Login successful, dashboard loaded.');
 
-    // --- 6. Click the Legacy Button ---
     console.log('Clicking icon to switch to legacy home...');
     await legacyIcon.click();
     await page.waitForSelector('a[href*="operationsHome"]', { visible: true });
@@ -216,6 +199,12 @@ const interceptDownload = (page) => {
 
   } catch (error) {
     console.error('❌ An error occurred during the automation script:');
+    // Take a final screenshot on any error
+    if (page) {
+        const errorScreenshotPath = './error_screenshot.png';
+        await page.screenshot({ path: errorScreenshotPath, fullPage: true });
+        console.error(`📷 A final error screenshot has been saved to: ${errorScreenshotPath}`);
+    }
     console.error(error);
     process.exit(1);
   } finally {
