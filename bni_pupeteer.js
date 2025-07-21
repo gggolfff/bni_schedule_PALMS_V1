@@ -1,12 +1,12 @@
 /**
- * @file BNI Connect Puppeteer Automation Script (v29 - Local GitHub Actions)
+ * @file BNI Connect Puppeteer Automation Script (v31 - Resilient Login with Debugging)
  * @description This script automates logging into BNI Connect, downloading the
  * "Slips Audit Report", and saving it to a local folder. It is designed to be
  * run in a GitHub Actions environment using a locally installed browser.
  *
- * This version uses the full `puppeteer` package and `puppeteer.launch()`
- * to run a browser directly on the GitHub runner, removing the need for
- * an external service like Browserless.io.
+ * This version introduces a resilient retry loop for the login process. If it
+ * fails to find the expected element after login, it will reload and try again,
+ * taking a screenshot on each failure for easier debugging.
  *
  * @requires puppeteer
  * @requires fs
@@ -101,24 +101,45 @@ const interceptDownload = (page) => {
     console.log('Clicking the login button...');
     await page.click("button[type='submit']");
 
-    // LOGIN FIX: Instead of the fragile Promise.all, we now explicitly wait for a
-    // reliable element on the dashboard page to appear. This confirms login success.
+    // LOGIN FIX: Implement a resilient retry loop to handle slow loading or intermediate pages.
     console.log('Waiting for dashboard to load after login...');
     const legacyIconSelector = '.css-hp1qy7 > svg';
-    await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 60000 });
-    console.log('Login successful, dashboard loaded.');
+    let legacyIcon = null;
+    const loginRetries = 3;
+    for (let i = 1; i <= loginRetries; i++) {
+        console.log(`[Login Attempt ${i}/${loginRetries}] Looking for dashboard element...`);
+        try {
+            legacyIcon = await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 30000 });
+            if (legacyIcon) {
+                console.log('✅ Dashboard element found! Login successful.');
+                break; // Exit the loop on success
+            }
+        } catch (err) {
+            console.warn(`Dashboard element not found on attempt ${i}.`);
+            const debugScreenshotPath = `./debug_screenshot_attempt_${i}.png`;
+            await page.screenshot({ path: debugScreenshotPath, fullPage: true });
+            console.warn(`📷 A debug screenshot has been saved to: ${debugScreenshotPath}`);
+            console.warn(`Current page URL is: ${page.url()}`);
 
-    // --- 6. Find and Click the Legacy Button ---
-    // Since we already waited for the icon, the complex loop is no longer needed.
-    console.log('Clicking icon to switch to legacy home...');
-    const legacyIcon = await page.$(legacyIconSelector);
-    if (!legacyIcon) {
-        throw new Error('Could not find the legacy switch icon even after waiting for it post-login.');
+            if (i === loginRetries) {
+                throw new Error(`Login failed after ${loginRetries} attempts. Could not find the dashboard element.`);
+            }
+
+            console.log('Reloading page and trying again...');
+            await page.reload({ waitUntil: 'networkidle0' });
+        }
     }
-    await legacyIcon.click();
 
+    if (!legacyIcon) {
+        throw new Error('Could not find the legacy switch icon after all login attempts.');
+    }
+
+    // --- 6. Click the Legacy Button ---
+    console.log('Clicking icon to switch to legacy home...');
+    await legacyIcon.click();
     await page.waitForSelector('a[href*="operationsHome"]', { visible: true });
     console.log('Successfully switched to legacy view.');
+
 
     // --- 7. Navigate to PALMS Report ---
     console.log('Navigating through Operations -> Chapter...');
@@ -182,7 +203,7 @@ const interceptDownload = (page) => {
         console.log(`Creating local download folder: ${LOCAL_DOWNLOAD_FOLDER}`);
         fs.mkdirSync(LOCAL_DOWNLOAD_FOLDER, { recursive: true });
     }
-    const destinationPath = path.join(LOKAL_DOWNLOAD_FOLDER, filename);
+    const destinationPath = path.join(LOCAL_DOWNLOAD_FOLDER, filename);
     console.log(`Writing file to local path: ${destinationPath}`);
     fs.writeFileSync(destinationPath, buffer);
     console.log(`✅ File successfully saved locally.`);
