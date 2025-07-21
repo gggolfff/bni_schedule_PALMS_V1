@@ -98,13 +98,15 @@ const interceptDownload = (page) => {
         document.querySelector("input[name='password']").value = pass;
     }, BNI_USERNAME, BNI_PASSWORD);
 
-    console.log('Clicking the login button...');
-    await Promise.all([
-      page.click("button[type='submit']"),
-      page.waitForNavigation({ waitUntil: 'networkidle0' })
-    ]);
-    console.log('Login successful.');
+ console.log('Clicking the login button...');
+    await page.click("button[type='submit']");
 
+    // LOGIN FIX: Instead of the fragile Promise.all, we now explicitly wait for a
+    // reliable element on the dashboard page to appear. This confirms login success.
+    console.log('Waiting for dashboard to load after login...');
+    const legacyIconSelector = '.css-hp1qy7 > svg';
+    await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 60000 });
+    console.log('Login successful, dashboard loaded.');
 
     // --- 6. Patiently Find and Click the Legacy Button ---
     console.log('Starting search for the legacy view switch...');
