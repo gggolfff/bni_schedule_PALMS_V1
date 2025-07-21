@@ -1,11 +1,12 @@
 /**
- * @file BNI Connect Puppeteer Automation Script (v32 - More Robust Login)
+ * @file BNI Connect Puppeteer Automation Script (v35 - Reverted to Proven Login Logic)
  * @description This script automates logging into BNI Connect, downloading the
  * "Slips Audit Report", and saving it to a local folder. It is designed to be
  * run in a GitHub Actions environment using a locally installed browser.
  *
- * This version uses a more reliable login pattern by explicitly waiting for
- * page navigation to complete as a direct result of the login button click.
+ * This version reverts the login mechanism to the proven page.type() and
+ * Promise.all(click, waitForNavigation) pattern from the original working
+* Colab script, which is more reliable for this specific website.
  *
  * @requires puppeteer
  * @requires fs
@@ -90,36 +91,30 @@ const interceptDownload = (page) => {
     console.log('Navigating to the login page...');
     await page.goto('https://www.bniconnectglobal.com/login/', { waitUntil: 'networkidle2' });
 
-    console.log('Entering login credentials...');
+    // LOGIN FIX: Reverting to the proven `page.type` method from the working Colab script.
+    console.log('Typing login credentials...');
     await page.waitForSelector("input[name='username']", { visible: true });
-    await page.evaluate((user, pass) => {
-        document.querySelector("input[name='username']").value = user;
-        document.querySelector("input[name='password']").value = pass;
-    }, BNI_USERNAME, BNI_PASSWORD);
+    await page.type("input[name='username']", BNI_USERNAME, { delay: 50 }); // Add a small delay to mimic human typing
+    await page.type("input[name='password']", BNI_PASSWORD, { delay: 50 });
 
-    // LOGIN FIX: Use Promise.all to handle the click and the resulting navigation together.
-    // This is the most reliable way to ensure the script waits for the page to load.
-    console.log('Clicking login button and waiting for navigation to complete...');
+    // Reverting to the proven Promise.all pattern for click and navigation.
+    console.log('Clicking the login button and waiting for navigation...');
     await Promise.all([
-        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }), // The navigation promise
-        page.click("button[type='submit']")                                   // The action that triggers navigation
+      page.click("button[type='submit']"),
+      page.waitForNavigation({ waitUntil: 'networkidle0' })
     ]);
-    console.log('Navigation after login is complete.');
+    console.log('Login successful. Navigated to the dashboard.');
 
 
-    // --- 6. Verify Login and Click the Legacy Button ---
-    console.log('Verifying dashboard has loaded by finding the legacy icon...');
+    // --- 6. Find and Click the Legacy Button ---
+    console.log('Starting patient search for the legacy view switch...');
     const legacyIconSelector = '.css-hp1qy7 > svg';
-    // Wait for the icon, then get a handle to it for clicking.
     await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 30000 });
-    const legacyIcon = await page.$(legacyIconSelector);
-    if (!legacyIcon) {
-        throw new Error('Could not find the legacy switch icon after successful navigation.');
-    }
-    console.log('✅ Login successful, dashboard loaded.');
-
+    console.log('✅ Legacy icon found!');
+    
     console.log('Clicking icon to switch to legacy home...');
-    await legacyIcon.click();
+    await page.click(legacyIconSelector);
+
     await page.waitForSelector('a[href*="operationsHome"]', { visible: true });
     console.log('Successfully switched to legacy view.');
 
@@ -202,8 +197,12 @@ const interceptDownload = (page) => {
     // Take a final screenshot on any error
     if (page) {
         const errorScreenshotPath = './error_screenshot.png';
-        await page.screenshot({ path: errorScreenshotPath, fullPage: true });
-        console.error(`📷 A final error screenshot has been saved to: ${errorScreenshotPath}`);
+        try {
+            await page.screenshot({ path: errorScreenshotPath, fullPage: true });
+            console.error(`📷 A final error screenshot has been saved to: ${errorScreenshotPath}`);
+        } catch (e) {
+            console.error('Could not take a final screenshot.', e);
+        }
     }
     console.error(error);
     process.exit(1);
