@@ -98,7 +98,7 @@ const interceptDownload = (page) => {
         document.querySelector("input[name='password']").value = pass;
     }, BNI_USERNAME, BNI_PASSWORD);
 
- console.log('Clicking the login button...');
+    console.log('Clicking the login button...');
     await page.click("button[type='submit']");
 
     // LOGIN FIX: Instead of the fragile Promise.all, we now explicitly wait for a
@@ -108,39 +108,17 @@ const interceptDownload = (page) => {
     await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 60000 });
     console.log('Login successful, dashboard loaded.');
 
-    // --- 6. Patiently Find and Click the Legacy Button ---
-    console.log('Starting search for the legacy view switch...');
-    const legacyIconSelector = '.css-hp1qy7 > svg';
-    let legacyIcon = null;
-    const maxRetries = 12;
-
-    for (let i = 1; i <= maxRetries; i++) {
-      console.log(`[Attempt ${i}/${maxRetries}] Looking for legacy icon...`);
-      try {
-        legacyIcon = await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 4000 });
-        if (legacyIcon) {
-          console.log('✅ Legacy icon found!');
-          break;
-        }
-      } catch (e) {
-        console.log(`Icon not found on attempt ${i}.`);
-        if (i < maxRetries) {
-          console.log('Reloading page and trying again...');
-          await page.reload({ waitUntil: 'networkidle0' });
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-      }
-    }
-
-    if (!legacyIcon) {
-      throw new Error(`Could not find the legacy switch icon after ${maxRetries} attempts.`);
-    }
-
+    // --- 6. Find and Click the Legacy Button ---
+    // Since we already waited for the icon, the complex loop is no longer needed.
     console.log('Clicking icon to switch to legacy home...');
+    const legacyIcon = await page.$(legacyIconSelector);
+    if (!legacyIcon) {
+        throw new Error('Could not find the legacy switch icon even after waiting for it post-login.');
+    }
     await legacyIcon.click();
+
     await page.waitForSelector('a[href*="operationsHome"]', { visible: true });
     console.log('Successfully switched to legacy view.');
-
 
     // --- 7. Navigate to PALMS Report ---
     console.log('Navigating through Operations -> Chapter...');
