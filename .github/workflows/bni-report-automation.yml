@@ -85,3 +85,14 @@ jobs:
         with:
           name: bni-slips-audit-report
           path: downloads/
+
+      # NEW STEP: Upload debug screenshots ONLY on failure
+      - name: Upload Debug Screenshots on Failure
+        # This step only runs if any of the previous steps failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          # Upload any .png file from the root directory
+          path: ./*.png
+
