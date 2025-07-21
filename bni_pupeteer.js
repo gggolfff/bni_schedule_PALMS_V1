@@ -1,12 +1,12 @@
 /**
- * @file BNI Connect Puppeteer Automation Script (v35 - Reverted to Proven Login Logic)
+ * @file BNI Connect Puppeteer Automation Script (v37 - Enhanced Download Logic)
  * @description This script automates logging into BNI Connect, downloading the
  * "Slips Audit Report", and saving it to a local folder. It is designed to be
  * run in a GitHub Actions environment using a locally installed browser.
  *
- * This version reverts the login mechanism to the proven page.type() and
- * Promise.all(click, waitForNavigation) pattern from the original working
-* Colab script, which is more reliable for this specific website.
+ * This version incorporates a much more robust download interception function
+ * with advanced error handling and diagnostics, including screenshots and an
+ * HTML dump on failure, to reliably capture the file.
  *
  * @requires puppeteer
  * @requires fs
@@ -29,37 +29,95 @@ const LOCAL_DOWNLOAD_FOLDER = path.resolve('./downloads');
 
 
 /**
- * Intercepts a download request and returns the file's content as a buffer.
- * @param {import('puppeteer').Page} page - The Puppeteer page object.
+ * Intercepts a download request with robust error handling and diagnostics.
+ * @param {import('puppeteer').Page} page - The main Puppeteer page object.
+ * @param {import('puppeteer').Frame} frame - The frame containing the download button.
+ * @param {string} exportButtonSelector - The selector for the download button inside the frame.
  * @returns {Promise<{buffer: Buffer, filename: string}>} A promise that resolves with the file buffer and filename.
  */
-const interceptDownload = (page) => {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-        reject(new Error('Download intercept timeout after 45 seconds.'));
-    }, 45000);
+async function interceptDownload(page, frame, exportButtonSelector) {
+    console.log('Attempting to intercept download...');
+    try {
+        // Ensure export button is available and clickable within the frame
+        await frame.waitForSelector(exportButtonSelector, { visible: true, timeout: 15000 });
+        console.log('Export button found and visible.');
 
-    page.on('response', async (response) => {
-      const disposition = response.headers()['content-disposition'];
-      if (disposition && disposition.includes('attachment')) {
-        try {
-            console.log('Download response intercepted.');
-            const filenameMatch = disposition.match(/filename="(.+?)"/);
-            const filename = filenameMatch ? filenameMatch[1] : 'downloaded-file.csv';
-            console.log(`Detected filename: ${filename}`);
-            const buffer = await response.buffer();
-            console.log('File data captured in buffer.');
-            clearTimeout(timeout);
-            page.removeAllListeners('response');
-            resolve({ buffer, filename });
-        } catch (err) {
-            clearTimeout(timeout);
-            reject(err);
-        }
-      }
-    });
-  });
-};
+        // Start listening for the download
+        const downloadPromise = new Promise(async (resolve, reject) => {
+            const timeout = setTimeout(async () => {
+                try {
+                    // Save diagnostics on timeout
+                    console.error('Download intercept timeout after 45 seconds.');
+                    const currentUrl = await page.url();
+                    console.error('Current page URL:', currentUrl);
+                    
+                    await page.screenshot({ path: 'error_download_timeout.png', fullPage: true });
+                    console.error('📷 Timeout screenshot saved to error_download_timeout.png');
+
+                    const pageContent = await page.content();
+                    fs.writeFileSync('error_page_dump.html', pageContent);
+                    console.error('📄 HTML page content saved to error_page_dump.html');
+
+                    reject(new Error(`Download intercept timeout after 45 seconds. URL: ${currentUrl}`));
+                } catch (diagError) {
+                    reject(new Error(`Download intercept timeout, and failed to capture diagnostics: ${diagError.message}`));
+                }
+            }, 45000);
+
+            // Attach the listener to the MAIN PAGE
+            page.on('response', async (response) => {
+                const headers = response.headers();
+                const disposition = headers['content-disposition'];
+                const contentType = headers['content-type'];
+
+                const isAttachment = disposition && disposition.includes('attachment');
+                const isDataFile = contentType && (contentType.includes('csv') || contentType.includes('excel') || contentType.includes('spreadsheetml') || contentType.includes('application/octet-stream'));
+
+                if (isAttachment || isDataFile) {
+                    console.log(`Download detected! Content-Type: ${contentType}`);
+                    try {
+                        let filename = 'downloaded-file.tmp';
+                        if (disposition) {
+                            const filenameMatch = disposition.match(/filename="(.+?)"/);
+                            if (filenameMatch) filename = filenameMatch[1];
+                        } else if (isDataFile) {
+                            const extension = contentType.includes('csv') ? 'csv' : 'xls';
+                            filename = `report-${Date.now()}.${extension}`;
+                        }
+                        
+                        const buffer = await response.buffer();
+                        console.log(`File data captured for: ${filename}`);
+                        
+                        clearTimeout(timeout);
+                        page.removeAllListeners('response');
+                        resolve({ buffer, filename });
+                    } catch (bufferError) {
+                        clearTimeout(timeout);
+                        reject(bufferError);
+                    }
+                }
+            });
+
+            // Trigger the download by clicking the button INSIDE THE FRAME
+            try {
+                console.log('Clicking export button to trigger download...');
+                await frame.click(exportButtonSelector);
+            } catch (clickErr) {
+                clearTimeout(timeout);
+                await page.screenshot({ path: 'error_download_click.png' });
+                reject(new Error('Failed to click export button: ' + clickErr.message));
+            }
+        });
+
+        // Wait for the promise to resolve with the download data
+        return await downloadPromise;
+
+    } catch (err) {
+        console.error('Download interception failed:', err);
+        await page.screenshot({ path: 'error_download_final.png', fullPage: true });
+        throw err; // Re-throw the error to fail the script
+    }
+}
 
 
 (async () => {
@@ -78,7 +136,6 @@ const interceptDownload = (page) => {
     // --- 4. Launch a local browser instance ---
     console.log('Launching local Puppeteer browser...');
     browser = await puppeteer.launch({
-      // These args are required to run in a Linux container like GitHub Actions
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
 
@@ -91,13 +148,11 @@ const interceptDownload = (page) => {
     console.log('Navigating to the login page...');
     await page.goto('https://www.bniconnectglobal.com/login/', { waitUntil: 'networkidle2' });
 
-    // LOGIN FIX: Reverting to the proven `page.type` method from the working Colab script.
     console.log('Typing login credentials...');
     await page.waitForSelector("input[name='username']", { visible: true });
-    await page.type("input[name='username']", BNI_USERNAME, { delay: 50 }); // Add a small delay to mimic human typing
+    await page.type("input[name='username']", BNI_USERNAME, { delay: 50 });
     await page.type("input[name='password']", BNI_PASSWORD, { delay: 50 });
 
-    // Reverting to the proven Promise.all pattern for click and navigation.
     console.log('Clicking the login button and waiting for navigation...');
     await Promise.all([
       page.click("button[type='submit']"),
@@ -156,9 +211,6 @@ const interceptDownload = (page) => {
 
 
     // --- 9. Download the Report ---
-    console.log('Setting up download interceptor...');
-    const downloadPromise = interceptDownload(page);
-
     console.log('Clicking the "Slips Audit Report" link...');
     await page.click('#auditLink');
 
@@ -167,12 +219,8 @@ const interceptDownload = (page) => {
     const frame = await iframeElementHandle.contentFrame();
     if (!frame) throw new Error('Could not get content frame of the report iframe.');
 
-    console.log('Clicking "Export without Headers" inside the iframe...');
-    await frame.waitForSelector('#links_1', { visible: true });
-    await frame.click('#links_1');
-
-    console.log('Waiting for download data to be captured...');
-    const { buffer, filename } = await downloadPromise;
+    // The new function handles the entire download process
+    const { buffer, filename } = await interceptDownload(page, frame, '#links_1');
 
 
     // --- 10. Save File Locally ---
@@ -188,13 +236,18 @@ const interceptDownload = (page) => {
 
 
     // --- 11. Cleanup ---
-    console.log('Closing the report modal...');
-    await page.click('.ui-dialog-titlebar-close');
-    console.log('Report modal closed.');
+    console.log('Attempting to close the report modal if it exists...');
+    try {
+      const closeModalSelector = '.ui-dialog-titlebar-close';
+      await page.waitForSelector(closeModalSelector, { visible: true, timeout: 5000 });
+      await page.click(closeModalSelector);
+      console.log('Report modal closed.');
+    } catch (e) {
+      console.log('Report modal not found or already closed. Continuing...');
+    }
 
   } catch (error) {
     console.error('❌ An error occurred during the automation script:');
-    // Take a final screenshot on any error
     if (page) {
         const errorScreenshotPath = './error_screenshot.png';
         try {
@@ -209,7 +262,7 @@ const interceptDownload = (page) => {
   } finally {
     if (browser) {
       console.log('--- Closing browser ---');
-      await browser.close(); // Use close() for launched browsers
+      await browser.close();
     }
     console.log('--- Script execution finished ---');
   }
