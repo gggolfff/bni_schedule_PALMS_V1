@@ -132,42 +132,90 @@ const waitForFile = (dirPath, timeout = 45000) => {
     // --- 8. Navigate to PALMS Summary Report ---
     console.log('Navigating through Operations -> Chapter... -> PALMS Summary');
     await page.click('a[href="#ui-tabs-3"]');
-    const enterPalmsSelector = 'a[href*="operationsChapterMeetingReportPalms"]';
+    const enterPalmsSelector = 'a[href*="reportsChapterPALMSForm"]';
     await page.waitForSelector(enterPalmsSelector, { visible: true });
     await page.click(enterPalmsSelector);
-    await page.click('#finishReviewButton');
-    await page.waitForSelector('#fromDate', { visible: true });
-    console.log('Navigated to the PALMS entry page.');
+    //await page.click('#finishReviewButton');
+    //await page.waitForSelector('#fromDate', { visible: true });
+    console.log('Navigated to the Summary PALMS date inputs.');
 
 
     // --- 9. Set Date and Search ---
-    console.log('Calculating date for the upcoming Friday...');
-    const upcomingFriday = await page.evaluate(() => {
+    console.log('Calculating date for the recent Friday...');
+     // --- Calculate dates ---
+    const { startDateFormatted, endDateFormatted } = (() => {
       const today = new Date();
-      const dayOfWeek = today.getDay();
-      const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
-      const nextFriday = new Date(today);
-      nextFriday.setDate(today.getDate() + daysUntilFriday);
-      const dd = String(nextFriday.getDate()).padStart(2, '0');
-      const mm = String(nextFriday.getMonth() + 1).padStart(2, '0');
-      const yyyy = nextFriday.getFullYear();
-      return `${dd}/${mm}/${yyyy}`;
-    });
-    console.log(`Calculated upcoming Friday as: ${upcomingFriday}`);
+      const day = today.getDay(); // Sunday=0 ... Saturday=6
+  
+      // Find most recent Friday (including today if Friday)
+      const diff = (day >= 5) ? (day - 5) : (day + 2);
+      const recentFriday = new Date(today);
+      recentFriday.setDate(today.getDate() - diff);
+  
+      // End date = recent Friday
+      const endDD = String(recentFriday.getDate()).padStart(2, "0");
+      const endMM = String(recentFriday.getMonth() + 1).padStart(2, "0");
+      const endYYYY = recentFriday.getFullYear();
+      const endDateFormatted = `${endDD}/${endMM}/${endYYYY}`;
+    
+      // Start date = 1st day of month, 6 months earlier
+      let start = new Date(recentFriday.getFullYear(), recentFriday.getMonth(), 1);
+      start.setMonth(start.getMonth() - 6);
+      const startDD = "01";
+      const startMM = String(start.getMonth() + 1).padStart(2, "0");
+      const startYYYY = start.getFullYear();
+      const startDateFormatted = `${startDD}/${startMM}/${startYYYY}`;
+  
+      return { startDateFormatted, endDateFormatted };
+    })();
+    
+    console.log('PALMS report 6 months earlier date:');
+    console.log("Start Date:", startDateFormatted);
+    console.log("End Date:", endDateFormatted);
 
-    console.log('Setting date and clicking Search...');
-    await page.evaluate((date) => {
-        document.querySelector('#fromDate').value = date;
-        document.querySelector('#Search').click();
-    }, upcomingFriday);
+    // --- Fill inputs ---
+    await page.type("#startDateChapterChapterPALMSReportDisplay", startDateFormatted, { delay: 50 });
+    await page.type("#endDateChapterChapterPALMSReportDisplay", endDateFormatted, { delay: 50 });
+    console.log('Start and End date filled in..');
+    console.log('sync hidden inputs..');
+    
+    // --- Also sync hidden inputs (to ensure form submits correctly) ---
+    await page.evaluate(
+    (startDateFormatted, endDateFormatted) => {
+      document.querySelector("#startDateChapterChapterPALMSReport").value = startDateFormatted;
+      document.querySelector("#endDateChapterChapterPALMSReport").value = endDateFormatted;
+      document.querySelector('#button').click();
+    },
+    startDateFormatted,
+    endDateFormatted
+    );
 
-    await page.waitForSelector('#auditLink', { visible: true, timeout: 30000 });
-    console.log('Search results loaded.');
+    // --- Original script for PALMS input method.. ---
+    // const upcomingFriday = await page.evaluate(() => {
+    //   const today = new Date();
+    //   const dayOfWeek = today.getDay();
+    //   const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
+    //   const nextFriday = new Date(today);
+    //   nextFriday.setDate(today.getDate() + daysUntilFriday);
+    //   const dd = String(nextFriday.getDate()).padStart(2, '0');
+    //   const mm = String(nextFriday.getMonth() + 1).padStart(2, '0');
+    //   const yyyy = nextFriday.getFullYear();
+    //   return `${dd}/${mm}/${yyyy}`;
+    // });
+    // console.log(`Calculated upcoming Friday as: ${upcomingFriday}`);
+    // console.log('Setting date and clicking Search...');
+    // await page.evaluate((date) => {
+    //     document.querySelector('#fromDate').value = date;
+    //     document.querySelector('#Search').click();
+    // }, upcomingFriday);
+
+    // await page.waitForSelector('#auditLink', { visible: true, timeout: 30000 });
+    // console.log('Search results loaded.');
 
 
     // --- 10. Download the Report ---
-    console.log('Clicking the "Slips Audit Report" link...');
-    await page.click('#auditLink');
+    // console.log('Clicking the "Slips Audit Report" link...');
+    // await page.click('#auditLink');
 
     console.log('Waiting for the report iframe to load...');
     const iframeElementHandle = await page.waitForSelector('iframe[src*="WebReport"]', { visible: true });
