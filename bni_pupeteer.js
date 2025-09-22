@@ -309,8 +309,8 @@ const waitForFile = (dirPath, timeout = 45000) => {
     // Click the search/submit button (replace selector)
     await page.click('#button'); // <-- REPLACE with your real search button selector
     // Wait for results (replace selector)
-    await page.waitForSelector('#resultTable', { visible: true, timeout: 30000 });
-    console.log('Search clicked and resultTable visible.');
+    // await page.waitForSelector('#resultTable', { visible: true, timeout: 30000 });
+    // console.log('Search clicked and resultTable visible.');
 
     //---end fill v3---
     
