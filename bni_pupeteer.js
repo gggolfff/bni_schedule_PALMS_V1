@@ -129,10 +129,10 @@ const waitForFile = (dirPath, timeout = 45000) => {
     console.log('Successfully switched to legacy view.');
 
 
-    // --- 8. Navigate to PALMS Report ---
-    console.log('Navigating through Operations -> Chapter...');
+    // --- 8. Navigate to PALMS Summary Report ---
+    console.log('Navigating through Operations -> Chapter... -> PALMS Summary');
     await page.click('a[href="#ui-tabs-3"]');
-    const enterPalmsSelector = 'a[href*="operationsChapterEnterPalms"]';
+    const enterPalmsSelector = 'a[href*="operationsChapterMeetingReportPalms"]';
     await page.waitForSelector(enterPalmsSelector, { visible: true });
     await page.click(enterPalmsSelector);
     await page.click('#finishReviewButton');
