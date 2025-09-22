@@ -189,29 +189,131 @@ const waitForFile = (dirPath, timeout = 45000) => {
     // startDateFormatted,
     // endDateFormatted
     // );
-    // --- Fill inputs properly V2---
-    await page.evaluate((startDateFormatted, endDateFormatted) => {
-      const startInput = document.querySelector("#startDateChapterChapterPALMSReportDisplay");
-      const endInput = document.querySelector("#endDateChapterChapterPALMSReportDisplay");
-    
-      // Set the value
-      startInput.value = startDateFormatted;
-      endInput.value = endDateFormatted;
-    
-      // Trigger events so the datepicker JS updates hidden fields + validates
-      startInput.dispatchEvent(new Event("change", { bubbles: true }));
-      endInput.dispatchEvent(new Event("change", { bubbles: true }));
-    
-      // If the form requires blur to trigger validation
-      startInput.dispatchEvent(new Event("blur"));
-      endInput.dispatchEvent(new Event("blur"));
-    }, startDateFormatted, endDateFormatted);
-    
-    console.log("Start and End date filled and events dispatched...");
-    
-    // Optionally click search after filling
-    await page.click("#button");
 
+    // --- Fill inpurts V3 ---
+    // --- Robust date fill & sync (replace your current fill block with this) ---
+    console.log('Filling dates into visible + hidden fields (robust method)...');
+    
+    // Wait for inputs to be present
+    await page.waitForSelector('#startDateChapterChapterPALMSReportDisplay', { visible: true });
+    await page.waitForSelector('#endDateChapterChapterPALMSReportDisplay', { visible: true });
+    
+    // Helper: convert dd/mm/yyyy -> mm/dd/yyyy (for hidden fields)
+    const ddmmyyyyToMmddyyyy = s => {
+      const [dd, mm, yyyy] = s.split('/');
+      return `${mm}/${dd}/${yyyy}`;
+    };
+    
+    const startHiddenFormat = ddmmyyyyToMmddyyyy(startDateFormatted);
+    const endHiddenFormat = ddmmyyyyToMmddyyyy(endDateFormatted);
+    
+    // Try set via datepicker API or fallback to DOM + events, then ensure hidden fields match
+    const result = await page.evaluate(
+      async ({ startDisplay, endDisplay, startHidden, endHidden }) => {
+        const $ = window.jQuery || window.$;
+        const startSel = '#startDateChapterChapterPALMSReportDisplay';
+        const endSel = '#endDateChapterChapterPALMSReportDisplay';
+        const startHiddenSel = '#startDateChapterChapterPALMSReport';
+        const endHiddenSel = '#endDateChapterChapterPALMSReport';
+    
+        const startEl = document.querySelector(startSel);
+        const endEl = document.querySelector(endSel);
+        const startHiddenEl = document.querySelector(startHiddenSel);
+        const endHiddenEl = document.querySelector(endHiddenSel);
+    
+        if (!startEl || !endEl) {
+          return { error: 'visible date inputs not found on page' };
+        }
+    
+        // helper to parse dd/mm/yyyy -> Date
+        const parseDMY = s => {
+          const [dd, mm, yyyy] = s.split('/');
+          return new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
+        };
+    
+        // 1) Try jQuery UI datepicker API (best)
+        let usedDatepicker = false;
+        if ($ && $.datepicker && typeof $(startEl).datepicker === 'function') {
+          try {
+            $(startEl).datepicker('setDate', parseDMY(startDisplay));
+            $(endEl).datepicker('setDate', parseDMY(endDisplay));
+            $(startEl).trigger('change').trigger('blur');
+            $(endEl).trigger('change').trigger('blur');
+            usedDatepicker = true;
+          } catch (e) {
+            // fall through to DOM method
+            usedDatepicker = false;
+          }
+          // give the page a moment to sync
+          await new Promise(r => setTimeout(r, 300));
+        }
+    
+        // 2) If datepicker not used or values still not set as expected, set DOM + events
+        if (startEl.value !== startDisplay || endEl.value !== endDisplay) {
+          startEl.focus();
+          startEl.value = startDisplay;
+          startEl.dispatchEvent(new Event('input', { bubbles: true }));
+          startEl.dispatchEvent(new Event('change', { bubbles: true }));
+          startEl.dispatchEvent(new Event('blur', { bubbles: true }));
+    
+          endEl.focus();
+          endEl.value = endDisplay;
+          endEl.dispatchEvent(new Event('input', { bubbles: true }));
+          endEl.dispatchEvent(new Event('change', { bubbles: true }));
+          endEl.dispatchEvent(new Event('blur', { bubbles: true }));
+    
+          await new Promise(r => setTimeout(r, 300));
+        }
+    
+        // 3) Force the hidden fields to the mm/dd/yyyy format (safe fallback)
+        if (startHiddenEl) {
+          startHiddenEl.value = startHidden;
+          startHiddenEl.dispatchEvent(new Event('input', { bubbles: true }));
+          startHiddenEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        if (endHiddenEl) {
+          endHiddenEl.value = endHidden;
+          endHiddenEl.dispatchEvent(new Event('input', { bubbles: true }));
+          endHiddenEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    
+        // Click somewhere to force potential blur handlers
+        document.body.click();
+        await new Promise(r => setTimeout(r, 300));
+    
+        return {
+          usedDatepicker,
+          displayStart: document.querySelector(startSel).value,
+          displayEnd: document.querySelector(endSel).value,
+          hiddenStart: startHiddenEl ? startHiddenEl.value : null,
+          hiddenEnd: endHiddenEl ? endHiddenEl.value : null
+        };
+      },
+      { startDisplay: startDateFormatted, endDisplay: endDateFormatted, startHidden: startHiddenFormat, endHidden: endHiddenFormat }
+    );
+    
+    console.log('Date write result:', result);
+    
+    // Quick checks & warnings
+    if (result.error) {
+      console.error('Error while writing dates:', result.error);
+    } else {
+      if (result.displayStart !== startDateFormatted || result.displayEnd !== endDateFormatted) {
+        console.warn('Visible display values differ from expected. Site may expect a different display format (e.g., MM/DD/YYYY vs DD/MM/YYYY).');
+      }
+      if (result.hiddenStart !== startHiddenFormat || result.hiddenEnd !== endHiddenFormat) {
+        console.warn('Hidden fields do not match the expected hidden format. The site may update them via async handlers. Check logs above.');
+      }
+    }
+    
+    // Click the search/submit button (replace selector)
+    await page.click('#button'); // <-- REPLACE with your real search button selector
+    // Wait for results (replace selector)
+    await page.waitForSelector('#resultTable', { visible: true, timeout: 30000 });
+    console.log('Search clicked and resultTable visible.');
+
+    //---end fill v3---
+    
     
     // --- Original script for PALMS input method.. ---
     // const upcomingFriday = await page.evaluate(() => {
