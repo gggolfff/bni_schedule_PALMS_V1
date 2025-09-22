@@ -173,23 +173,46 @@ const waitForFile = (dirPath, timeout = 45000) => {
     console.log("Start Date:", startDateFormatted);
     console.log("End Date:", endDateFormatted);
 
-    // --- Fill inputs ---
-    await page.type("#startDateChapterChapterPALMSReportDisplay", startDateFormatted, { delay: 50 });
-    await page.type("#endDateChapterChapterPALMSReportDisplay", endDateFormatted, { delay: 50 });
-    console.log('Start and End date filled in..');
-    console.log('sync hidden inputs..');
+    // // --- Fill inputs V1---
+    // await page.type("#startDateChapterChapterPALMSReportDisplay", startDateFormatted, { delay: 50 });
+    // await page.type("#endDateChapterChapterPALMSReportDisplay", endDateFormatted, { delay: 50 });
+    // console.log('Start and End date filled in..');
+    // console.log('sync hidden inputs..');
     
-    // --- Also sync hidden inputs (to ensure form submits correctly) ---
-    await page.evaluate(
-    (startDateFormatted, endDateFormatted) => {
-      document.querySelector("#startDateChapterChapterPALMSReport").value = startDateFormatted;
-      document.querySelector("#endDateChapterChapterPALMSReport").value = endDateFormatted;
-      document.querySelector('#button').click();
-    },
-    startDateFormatted,
-    endDateFormatted
-    );
+    // // --- Also sync hidden inputs (to ensure form submits correctly) ---
+    // await page.evaluate(
+    // (startDateFormatted, endDateFormatted) => {
+    //   document.querySelector("#startDateChapterChapterPALMSReport").value = startDateFormatted;
+    //   document.querySelector("#endDateChapterChapterPALMSReport").value = endDateFormatted;
+    //   document.querySelector('#button').click();
+    // },
+    // startDateFormatted,
+    // endDateFormatted
+    // );
+    // --- Fill inputs properly V2---
+    await page.evaluate((startDateFormatted, endDateFormatted) => {
+      const startInput = document.querySelector("#startDateChapterChapterPALMSReportDisplay");
+      const endInput = document.querySelector("#endDateChapterChapterPALMSReportDisplay");
+    
+      // Set the value
+      startInput.value = startDateFormatted;
+      endInput.value = endDateFormatted;
+    
+      // Trigger events so the datepicker JS updates hidden fields + validates
+      startInput.dispatchEvent(new Event("change", { bubbles: true }));
+      endInput.dispatchEvent(new Event("change", { bubbles: true }));
+    
+      // If the form requires blur to trigger validation
+      startInput.dispatchEvent(new Event("blur"));
+      endInput.dispatchEvent(new Event("blur"));
+    }, startDateFormatted, endDateFormatted);
+    
+    console.log("Start and End date filled and events dispatched...");
+    
+    // Optionally click search after filling
+    await page.click("#button");
 
+    
     // --- Original script for PALMS input method.. ---
     // const upcomingFriday = await page.evaluate(() => {
     //   const today = new Date();
