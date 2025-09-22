@@ -136,7 +136,7 @@ const waitForFile = (dirPath, timeout = 45000) => {
     await page.waitForSelector(enterPalmsSelector, { visible: true });
     await page.click(enterPalmsSelector);
     //await page.click('#finishReviewButton');
-    //await page.waitForSelector('#fromDate', { visible: true });
+    await page.waitForSelector('#startDateChapterChapterPALMSReportDisplay', { visible: true });
     console.log('Navigated to the Summary PALMS date inputs.');
 
 
