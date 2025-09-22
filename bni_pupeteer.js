@@ -160,7 +160,7 @@ const waitForFile = (dirPath, timeout = 45000) => {
     
       // Start date = 1st day of month, 6 months earlier
       let start = new Date(recentFriday.getFullYear(), recentFriday.getMonth(), 1);
-      start.setMonth(start.getMonth() - 6);
+      start.setMonth(start.getMonth() - 5);
       const startDD = "01";
       const startMM = String(start.getMonth() + 1).padStart(2, "0");
       const startYYYY = start.getFullYear();
