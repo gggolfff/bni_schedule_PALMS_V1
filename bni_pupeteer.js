@@ -1,391 +1,385 @@
 /**
- * @file BNI Connect Puppeteer Automation Script (v38 - Filesystem Download)
- * @description This script automates logging into BNI Connect, downloading the
- * "Slips Audit Report", and saving it to a local folder. It is designed to be
- * run in a GitHub Actions environment using a locally installed browser.
- *
- * This version fixes the "ProtocolError" by abandoning download interception.
- * Instead, it instructs the browser to download the file directly to the local
-* filesystem and then waits for the file to appear, which is more reliable.
- *
- * @requires puppeteer
- * @requires fs
- * @requires path
+ * BNI Connect Puppeteer Automation Script (multi-report + rename)
+ * Integrated version — pulls 5 report ranges, downloads, renames files.
  */
 
-// --- 1. Import required modules ---
-const puppeteer = require('puppeteer'); // Use the full puppeteer package
+const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
-// --- 2. CONFIGURATION ---
-// Credentials are read from environment variables (GitHub Secrets).
+// CONFIG
 const BNI_USERNAME = process.env.BNI_USERNAME;
 const BNI_PASSWORD = process.env.BNI_PASSWORD;
-
-// The local folder within the GitHub Actions runner to save the file.
 const LOCAL_DOWNLOAD_FOLDER = path.resolve('./downloads');
-// --- END: CONFIGURATION ---
 
-
-/**
- * Polls a directory to wait for a file to be downloaded.
- * @param {string} dirPath - The absolute path to the download directory.
- * @param {number} timeout - The maximum time to wait in milliseconds.
- * @returns {Promise<string>} A promise that resolves with the full path of the downloaded file.
- */
-const waitForFile = (dirPath, timeout = 45000) => {
-  console.log(`Waiting for download to appear in: ${dirPath}`);
-  const startTime = Date.now();
+// Wait-for-file helper (checks file mtime > startTime)
+const waitForFile = (dirPath, startTime = Date.now(), timeout = 90000) => {
+  console.log(`Waiting for a new download in: ${dirPath} (timeout ${timeout/1000}s)`);
+  const start = Date.now();
   return new Promise((resolve, reject) => {
-    const interval = setInterval(() => {
+    const timer = setInterval(() => {
       try {
         const files = fs.readdirSync(dirPath);
-        // Filter out temporary chrome download files
-        const completedFiles = files.filter(file => !file.endsWith('.crdownload') && file !== '.com.google.Chrome.??????');
+        // filter out in-progress/chrome temp files
+        const candidates = files
+          .filter(f => !f.endsWith('.crdownload') && !f.startsWith('.'))
+          .map(f => {
+            const p = path.join(dirPath, f);
+            const stat = fs.statSync(p);
+            return { name: f, path: p, mtime: stat.mtimeMs };
+          })
+          .filter(obj => obj.mtime >= startTime - 1000) // created/modified after we started waiting
+          .sort((a, b) => b.mtime - a.mtime);
 
-        if (completedFiles.length > 0) {
-          clearInterval(interval);
-          console.log(`Download detected: ${completedFiles[0]}`);
-          resolve(path.join(dirPath, completedFiles[0]));
-        } else if (Date.now() - startTime > timeout) {
-          clearInterval(interval);
-          reject(new Error(`Download timeout: No file appeared in ${dirPath} after ${timeout / 1000} seconds.`));
+        if (candidates.length > 0) {
+          clearInterval(timer);
+          console.log('Download detected:', candidates[0].name);
+          return resolve(candidates[0].path);
+        }
+
+        if (Date.now() - start > timeout) {
+          clearInterval(timer);
+          return reject(new Error(`Download timeout: no file appeared in ${dirPath} after ${timeout/1000}s.`));
         }
       } catch (err) {
-        clearInterval(interval);
-        reject(err);
+        clearInterval(timer);
+        return reject(err);
       }
-    }, 1000); // Check every second
+    }, 1000);
   });
 };
 
+// Date helpers & filename formatting
+const MONTH_ABBREV = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-(async () => {
-  let browser;
-  let page;
+function formatDdMmYyyy(date) {
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
 
-  console.log('--- Starting BNI Connect Automation Script (Local Runner) ---');
+function formatStartMMMYY(date) {
+  const mon = MONTH_ABBREV[date.getMonth()];
+  const yy = String(date.getFullYear()).slice(-2);
+  return `${mon}${yy}`; // e.g., Apr25
+}
 
-  // --- 3. Basic Validation ---
-  if (!BNI_USERNAME || !BNI_PASSWORD) {
-    console.error('!!! CRITICAL: Missing BNI_USERNAME or BNI_PASSWORD environment variables.');
-    process.exit(1);
+function formatEndShortDDMonYY(date) {
+  const dd = String(date.getDate()).padStart(2,'0');
+  const mon = MONTH_ABBREV[date.getMonth()];
+  const yy = String(date.getFullYear()).slice(-2);
+  return `${dd}${mon}${yy}`; // e.g., 19Sep25
+}
+
+function getRecentFriday(today = new Date()) {
+  const day = today.getDay(); // Sun=0..Sat=6
+  const diff = (day >= 5) ? (day - 5) : (day + 2);
+  const friday = new Date(today);
+  friday.setDate(today.getDate() - diff);
+  friday.setHours(0,0,0,0);
+  return friday;
+}
+
+function getFridayWeekNumber(fridayDate) {
+  const d = new Date(fridayDate.getFullYear(), fridayDate.getMonth(), fridayDate.getDate());
+  let count = 0;
+  for (let day = 1; day <= d.getDate(); day++) {
+    const tmp = new Date(d.getFullYear(), d.getMonth(), day);
+    if (tmp.getDay() === 5) count++;
+  }
+  return count;
+}
+
+/**
+ * Build configurations for the five reports (in the order you wanted).
+ * Uses the "recentFriday" (single calculation) as the end date for all.
+ */
+function buildReportConfigs(recentFriday) {
+  const endDisplay = formatDdMmYyyy(recentFriday);
+  const endShort = formatEndShortDDMonYY(recentFriday);
+
+  // For the "6 months earlier" naming you requested (Sep -> Apr),
+  // we subtract 5 months from the recentFriday month index to get Apr.
+  const offsets = [
+    { monthsBack: 5, label: '6monthsEarlier' }, // produces Apr25 for Sep
+    { monthsBack: 4, label: '5monthsEarlier' }, // May
+    { monthsBack: 3, label: '4monthsEarlier' }  // Jun
+  ];
+
+  const configs = offsets.map(o => {
+    const start = new Date(recentFriday.getFullYear(), recentFriday.getMonth() - o.monthsBack, 1);
+    const startDisplay = formatDdMmYyyy(start);
+    const startShort = formatStartMMMYY(start);
+    // file format: chapter-palms-report_Apr25-19Sep25
+    const fileName = `chapter-palms-report_${startShort}-${endShort}`;
+    return { label: o.label, startDisplay, endDisplay, fileName };
+  });
+
+  // From Jan 1st of this year
+  const jan1 = new Date(recentFriday.getFullYear(), 0, 1);
+  configs.push({
+    label: 'FromJan',
+    startDisplay: formatDdMmYyyy(jan1),
+    endDisplay,
+    fileName: `chapter-palms-report_Jan${String(jan1.getFullYear()).slice(-2)}-${endShort}`
+  });
+
+  // From 1st of this month (special "WeekN" naming)
+  const firstOfMonth = new Date(recentFriday.getFullYear(), recentFriday.getMonth(), 1);
+  const weekNum = getFridayWeekNumber(recentFriday); // 1-based Friday-count
+  configs.push({
+    label: 'FromThisMonth',
+    startDisplay: formatDdMmYyyy(firstOfMonth),
+    endDisplay,
+    fileName: `chapter-palms-report_${formatStartMMMYY(firstOfMonth)}-Week${weekNum}`
+  });
+
+  return configs;
+}
+
+/**
+ * Robust fill function: tries datepicker('setDate') if jQuery UI exists,
+ * otherwise falls back to setting visible value + dispatching events,
+ * then forces the hidden fields (MM/DD/YYYY) as a fallback.
+ *
+ * Note: this function DOES NOT click the Search button — the caller triggers it.
+ */
+async function setDatesOnPage(page, startDisplay, endDisplay) {
+  // ensure inputs exist
+  await page.waitForSelector('#startDateChapterChapterPALMSReportDisplay', { visible: true });
+  await page.waitForSelector('#endDateChapterChapterPALMSReportDisplay', { visible: true });
+
+  // helper to convert dd/mm/yyyy -> Date within page context
+  const result = await page.evaluate(
+    async ({ startDisplay, endDisplay }) => {
+      const $ = window.jQuery || window.$;
+      const startSel = '#startDateChapterChapterPALMSReportDisplay';
+      const endSel = '#endDateChapterChapterPALMSReportDisplay';
+      const startHiddenSel = '#startDateChapterChapterPALMSReport';
+      const endHiddenSel = '#endDateChapterChapterPALMSReport';
+
+      const startEl = document.querySelector(startSel);
+      const endEl = document.querySelector(endSel);
+      const startHiddenEl = document.querySelector(startHiddenSel);
+      const endHiddenEl = document.querySelector(endHiddenSel);
+
+      if (!startEl || !endEl) {
+        return { error: 'visible date inputs not found' };
+      }
+
+      const parseDMY = s => {
+        const [dd, mm, yyyy] = s.split('/');
+        return new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
+      };
+
+      let usedDatepicker = false;
+      if ($ && $.datepicker && typeof $(startEl).datepicker === 'function') {
+        try {
+          $(startEl).datepicker('setDate', parseDMY(startDisplay));
+          $(endEl).datepicker('setDate', parseDMY(endDisplay));
+          $(startEl).trigger('change').trigger('blur');
+          $(endEl).trigger('change').trigger('blur');
+          usedDatepicker = true;
+        } catch (e) {
+          usedDatepicker = false;
+        }
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      // fallback: DOM value + events
+      if (startEl.value !== startDisplay || endEl.value !== endDisplay) {
+        startEl.focus();
+        startEl.value = startDisplay;
+        startEl.dispatchEvent(new Event('input', { bubbles: true }));
+        startEl.dispatchEvent(new Event('change', { bubbles: true }));
+        startEl.dispatchEvent(new Event('blur', { bubbles: true }));
+
+        endEl.focus();
+        endEl.value = endDisplay;
+        endEl.dispatchEvent(new Event('input', { bubbles: true }));
+        endEl.dispatchEvent(new Event('change', { bubbles: true }));
+        endEl.dispatchEvent(new Event('blur', { bubbles: true }));
+
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      // fallback: force hidden fields to MM/DD/YYYY (many datepickers store that)
+      const toHidden = s => {
+        const [dd, mm, yyyy] = s.split('/');
+        return `${mm}/${dd}/${yyyy}`;
+      };
+
+      if (startHiddenEl) {
+        startHiddenEl.value = toHidden(startDisplay);
+        startHiddenEl.dispatchEvent(new Event('input', { bubbles: true }));
+        startHiddenEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      if (endHiddenEl) {
+        endHiddenEl.value = toHidden(endDisplay);
+        endHiddenEl.dispatchEvent(new Event('input', { bubbles: true }));
+        endHiddenEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      // click body to trigger blur handlers
+      document.body.click();
+      await new Promise(r => setTimeout(r, 300));
+
+      return {
+        usedDatepicker,
+        displayStart: document.querySelector(startSel).value,
+        displayEnd: document.querySelector(endSel).value,
+        hiddenStart: startHiddenEl ? startHiddenEl.value : null,
+        hiddenEnd: endHiddenEl ? endHiddenEl.value : null
+      };
+    },
+    { startDisplay, endDisplay }
+  );
+
+  return result;
+}
+
+/**
+ * Run a single report: set dates, click search, wait for iframe,
+ * click export inside iframe, wait for file, rename file, close modal.
+ */
+async function runOneReport(page, downloadFolder, config) {
+  console.log(`\n▶ Running report: ${config.label} -> ${config.fileName}`);
+
+  // Make sure the input fields are visible and page is ready
+  await page.waitForSelector('#startDateChapterChapterPALMSReportDisplay', { visible: true, timeout: 10000 });
+
+  // Set the dates (robust)
+  const setResult = await setDatesOnPage(page, config.startDisplay, config.endDisplay);
+  console.log('setDates result:', setResult);
+  if (setResult.error) throw new Error('Could not set date inputs on page: ' + setResult.error);
+
+  // Click the search button
+  // record start time BEFORE clicking so waitForFile filters by mtime > startedAt
+  const startedAt = Date.now();
+  await page.click('#button'); // <- your Search button selector
+
+  // Wait for report iframe
+  console.log('Waiting for report iframe...');
+  const iframeElementHandle = await page.waitForSelector('iframe[src*="WebReport"]', { visible: true, timeout: 60000 });
+  const frame = await iframeElementHandle.contentFrame();
+  if (!frame) throw new Error('Could not get content frame of report iframe.');
+
+  // Click Export (inside iframe)
+  console.log('Clicking Export inside iframe...');
+  await frame.waitForSelector('#links_1', { visible: true, timeout: 30000 });
+  await frame.click('#links_1');
+
+  // Wait for file to appear
+  const downloadedPath = await waitForFile(downloadFolder, startedAt, 90000);
+  console.log('Downloaded file path:', downloadedPath);
+
+  // Rename file to your requested naming scheme (preserve extension)
+  const ext = path.extname(downloadedPath) || '.xls';
+  const newFilePath = path.join(downloadFolder, `${config.fileName}${ext}`);
+  try {
+    fs.renameSync(downloadedPath, newFilePath);
+    console.log(`Renamed downloaded file -> ${newFilePath}`);
+  } catch (err) {
+    console.warn('Rename failed, leaving original filename. Error:', err);
   }
 
+  // Close modal (if present) and wait for iframe removal
   try {
-    // --- 4. Launch a local browser instance ---
-    console.log('Launching local Puppeteer browser...');
+    const closeModalSelector = '.ui-dialog-titlebar-close';
+    await page.waitForSelector(closeModalSelector, { visible: true, timeout: 5000 });
+    await page.click(closeModalSelector);
+    // Wait for iframe to disappear
+    await page.waitForSelector('iframe[src*="WebReport"]', { hidden: true, timeout: 5000 });
+    console.log('Modal closed and iframe removed.');
+  } catch (err) {
+    console.log('Modal close either not present or already closed. Continuing.');
+  }
+
+  // short pause to ensure UI is stable for next iteration
+  await page.waitForTimeout(800);
+}
+
+(async () => {
+  let browser, page;
+  try {
+    console.log('--- Starting BNI Connect multi-report script ---');
+
+    // Basic validation
+    if (!BNI_USERNAME || !BNI_PASSWORD) {
+      console.error('Missing BNI_USERNAME or BNI_PASSWORD env vars.');
+      process.exit(1);
+    }
+
+    // Launch browser
     browser = await puppeteer.launch({
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
-
     page = await browser.newPage();
     page.setDefaultTimeout(90000);
     await page.setViewport({ width: 1280, height: 960 });
-    console.log('Local browser launched and page created.');
 
-    // --- 5. Configure Download Behavior ---
-    // Create the download directory if it doesn't exist
-    if (!fs.existsSync(LOCAL_DOWNLOAD_FOLDER)) {
-      fs.mkdirSync(LOCAL_DOWNLOAD_FOLDER, { recursive: true });
+    // Prepare download folder
+    if (!fs.existsSync(LOCAL_DOWNLOAD_FOLDER)) fs.mkdirSync(LOCAL_DOWNLOAD_FOLDER, { recursive: true });
+    // clear old files to avoid false positives (optional but recommended in CI)
+    const existing = fs.readdirSync(LOCAL_DOWNLOAD_FOLDER);
+    for (const f of existing) {
+      try { fs.unlinkSync(path.join(LOCAL_DOWNLOAD_FOLDER, f)); } catch (e) { /* ignore */ }
     }
-    // Use the Chrome DevTools Protocol to set the download path
+
     const client = await page.target().createCDPSession();
-    await client.send('Page.setDownloadBehavior', {
-      behavior: 'allow',
-      downloadPath: LOCAL_DOWNLOAD_FOLDER,
-    });
-    console.log(`Download behavior configured to save files in: ${LOCAL_DOWNLOAD_FOLDER}`);
+    await client.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: LOCAL_DOWNLOAD_FOLDER });
+    console.log('Download behavior configured.');
 
-
-    // --- 6. Login to BNI Connect ---
-    console.log('Navigating to the login page...');
+    // --- LOGIN & NAVIGATION (kept from your script) ---
+    console.log('Navigating to login...');
     await page.goto('https://www.bniconnectglobal.com/login/', { waitUntil: 'networkidle2' });
-
-    console.log('Typing login credentials...');
     await page.waitForSelector("input[name='username']", { visible: true });
     await page.type("input[name='username']", BNI_USERNAME, { delay: 50 });
     await page.type("input[name='password']", BNI_PASSWORD, { delay: 50 });
+    await Promise.all([ page.click("button[type='submit']"), page.waitForNavigation({ waitUntil: 'networkidle0' }) ]);
+    console.log('Logged in.');
 
-    console.log('Clicking the login button and waiting for navigation...');
-    await Promise.all([
-      page.click("button[type='submit']"),
-      page.waitForNavigation({ waitUntil: 'networkidle0' })
-    ]);
-    console.log('Login successful. Navigated to the dashboard.');
-
-
-    // --- 7. Find and Click the Legacy Button ---
-    console.log('Starting patient search for the legacy view switch...');
-    const legacyIconSelector = '.css-hp1qy7 > svg';
-    await page.waitForSelector(legacyIconSelector, { visible: true, timeout: 30000 });
-    console.log('✅ Legacy icon found!');
-    
-    console.log('Clicking icon to switch to legacy home...');
-    await page.click(legacyIconSelector);
-
+    // Switch to legacy & navigate to PALMS summary (kept from your script)
+    await page.waitForSelector('.css-hp1qy7 > svg', { visible: true, timeout: 30000 });
+    await page.click('.css-hp1qy7 > svg');
     await page.waitForSelector('a[href*="operationsHome"]', { visible: true });
-    console.log('Successfully switched to legacy view.');
-
-
-    // --- 8. Navigate to PALMS Summary Report ---
-    console.log('Navigating through Operations -> Chapter... -> PALMS Summary');
     await page.click('a[href="#ui-tabs-3"]');
     const enterPalmsSelector = 'a[href*="reportsChapterPALMSForm"]';
     await page.waitForSelector(enterPalmsSelector, { visible: true });
     await page.click(enterPalmsSelector);
-    //await page.click('#finishReviewButton');
     await page.waitForSelector('#startDateChapterChapterPALMSReportDisplay', { visible: true });
-    console.log('Navigated to the Summary PALMS date inputs.');
+    console.log('On PALMS Summary page.');
 
+    // compute recentFriday and report configs
+    const recentFriday = getRecentFriday();
+    console.log('Recent Friday (end for all reports):', formatDdMmYyyy(recentFriday));
+    const configs = buildReportConfigs(recentFriday);
+    console.log('Will pull these reports:');
+    configs.forEach(c => console.log(' -', c.fileName, '|', c.startDisplay, '→', c.endDisplay));
 
-    // --- 9. Set Date and Search ---
-    console.log('Calculating date for the recent Friday...');
-     // --- Calculate dates ---
-    const { startDateFormatted, endDateFormatted } = (() => {
-      const today = new Date();
-      const day = today.getDay(); // Sunday=0 ... Saturday=6
-  
-      // Find most recent Friday (including today if Friday)
-      const diff = (day >= 5) ? (day - 5) : (day + 2);
-      const recentFriday = new Date(today);
-      recentFriday.setDate(today.getDate() - diff);
-  
-      // End date = recent Friday
-      const endDD = String(recentFriday.getDate()).padStart(2, "0");
-      const endMM = String(recentFriday.getMonth() + 1).padStart(2, "0");
-      const endYYYY = recentFriday.getFullYear();
-      const endDateFormatted = `${endDD}/${endMM}/${endYYYY}`;
-    
-      // Start date = 1st day of month, 6 months earlier
-      let start = new Date(recentFriday.getFullYear(), recentFriday.getMonth(), 1);
-      start.setMonth(start.getMonth() - 5);
-      const startDD = "01";
-      const startMM = String(start.getMonth() + 1).padStart(2, "0");
-      const startYYYY = start.getFullYear();
-      const startDateFormatted = `${startDD}/${startMM}/${startYYYY}`;
-  
-      return { startDateFormatted, endDateFormatted };
-    })();
-    
-    console.log('PALMS report 6 months earlier date:');
-    console.log("Start Date:", startDateFormatted);
-    console.log("End Date:", endDateFormatted);
-
-    // // --- Fill inputs V1---
-    // await page.type("#startDateChapterChapterPALMSReportDisplay", startDateFormatted, { delay: 50 });
-    // await page.type("#endDateChapterChapterPALMSReportDisplay", endDateFormatted, { delay: 50 });
-    // console.log('Start and End date filled in..');
-    // console.log('sync hidden inputs..');
-    
-    // // --- Also sync hidden inputs (to ensure form submits correctly) ---
-    // await page.evaluate(
-    // (startDateFormatted, endDateFormatted) => {
-    //   document.querySelector("#startDateChapterChapterPALMSReport").value = startDateFormatted;
-    //   document.querySelector("#endDateChapterChapterPALMSReport").value = endDateFormatted;
-    //   document.querySelector('#button').click();
-    // },
-    // startDateFormatted,
-    // endDateFormatted
-    // );
-
-    // --- Fill inpurts V3 ---
-    // --- Robust date fill & sync (replace your current fill block with this) ---
-    console.log('Filling dates into visible + hidden fields (robust method)...');
-    
-    // Wait for inputs to be present
-    await page.waitForSelector('#startDateChapterChapterPALMSReportDisplay', { visible: true });
-    await page.waitForSelector('#endDateChapterChapterPALMSReportDisplay', { visible: true });
-    
-    // Helper: convert dd/mm/yyyy -> mm/dd/yyyy (for hidden fields)
-    const ddmmyyyyToMmddyyyy = s => {
-      const [dd, mm, yyyy] = s.split('/');
-      return `${mm}/${dd}/${yyyy}`;
-    };
-    
-    const startHiddenFormat = ddmmyyyyToMmddyyyy(startDateFormatted);
-    const endHiddenFormat = ddmmyyyyToMmddyyyy(endDateFormatted);
-    
-    // Try set via datepicker API or fallback to DOM + events, then ensure hidden fields match
-    const result = await page.evaluate(
-      async ({ startDisplay, endDisplay, startHidden, endHidden }) => {
-        const $ = window.jQuery || window.$;
-        const startSel = '#startDateChapterChapterPALMSReportDisplay';
-        const endSel = '#endDateChapterChapterPALMSReportDisplay';
-        const startHiddenSel = '#startDateChapterChapterPALMSReport';
-        const endHiddenSel = '#endDateChapterChapterPALMSReport';
-    
-        const startEl = document.querySelector(startSel);
-        const endEl = document.querySelector(endSel);
-        const startHiddenEl = document.querySelector(startHiddenSel);
-        const endHiddenEl = document.querySelector(endHiddenSel);
-    
-        if (!startEl || !endEl) {
-          return { error: 'visible date inputs not found on page' };
-        }
-    
-        // helper to parse dd/mm/yyyy -> Date
-        const parseDMY = s => {
-          const [dd, mm, yyyy] = s.split('/');
-          return new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
-        };
-    
-        // 1) Try jQuery UI datepicker API (best)
-        let usedDatepicker = false;
-        if ($ && $.datepicker && typeof $(startEl).datepicker === 'function') {
-          try {
-            $(startEl).datepicker('setDate', parseDMY(startDisplay));
-            $(endEl).datepicker('setDate', parseDMY(endDisplay));
-            $(startEl).trigger('change').trigger('blur');
-            $(endEl).trigger('change').trigger('blur');
-            usedDatepicker = true;
-          } catch (e) {
-            // fall through to DOM method
-            usedDatepicker = false;
-          }
-          // give the page a moment to sync
-          await new Promise(r => setTimeout(r, 300));
-        }
-    
-        // 2) If datepicker not used or values still not set as expected, set DOM + events
-        if (startEl.value !== startDisplay || endEl.value !== endDisplay) {
-          startEl.focus();
-          startEl.value = startDisplay;
-          startEl.dispatchEvent(new Event('input', { bubbles: true }));
-          startEl.dispatchEvent(new Event('change', { bubbles: true }));
-          startEl.dispatchEvent(new Event('blur', { bubbles: true }));
-    
-          endEl.focus();
-          endEl.value = endDisplay;
-          endEl.dispatchEvent(new Event('input', { bubbles: true }));
-          endEl.dispatchEvent(new Event('change', { bubbles: true }));
-          endEl.dispatchEvent(new Event('blur', { bubbles: true }));
-    
-          await new Promise(r => setTimeout(r, 300));
-        }
-    
-        // 3) Force the hidden fields to the mm/dd/yyyy format (safe fallback)
-        if (startHiddenEl) {
-          startHiddenEl.value = startHidden;
-          startHiddenEl.dispatchEvent(new Event('input', { bubbles: true }));
-          startHiddenEl.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        if (endHiddenEl) {
-          endHiddenEl.value = endHidden;
-          endHiddenEl.dispatchEvent(new Event('input', { bubbles: true }));
-          endHiddenEl.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-    
-        // Click somewhere to force potential blur handlers
-        document.body.click();
-        await new Promise(r => setTimeout(r, 300));
-    
-        return {
-          usedDatepicker,
-          displayStart: document.querySelector(startSel).value,
-          displayEnd: document.querySelector(endSel).value,
-          hiddenStart: startHiddenEl ? startHiddenEl.value : null,
-          hiddenEnd: endHiddenEl ? endHiddenEl.value : null
-        };
-      },
-      { startDisplay: startDateFormatted, endDisplay: endDateFormatted, startHidden: startHiddenFormat, endHidden: endHiddenFormat }
-    );
-    
-    console.log('Date write result:', result);
-    
-    // Quick checks & warnings
-    if (result.error) {
-      console.error('Error while writing dates:', result.error);
-    } else {
-      if (result.displayStart !== startDateFormatted || result.displayEnd !== endDateFormatted) {
-        console.warn('Visible display values differ from expected. Site may expect a different display format (e.g., MM/DD/YYYY vs DD/MM/YYYY).');
-      }
-      if (result.hiddenStart !== startHiddenFormat || result.hiddenEnd !== endHiddenFormat) {
-        console.warn('Hidden fields do not match the expected hidden format. The site may update them via async handlers. Check logs above.');
-      }
-    }
-    
-    // Click the search/submit button (replace selector)
-    await page.click('#button'); // <-- REPLACE with your real search button selector
-    // Wait for results (replace selector)
-    // await page.waitForSelector('#resultTable', { visible: true, timeout: 30000 });
-    // console.log('Search clicked and resultTable visible.');
-
-    //---end fill v3---
-    
-    
-    // --- Original script for PALMS input method.. ---
-    // const upcomingFriday = await page.evaluate(() => {
-    //   const today = new Date();
-    //   const dayOfWeek = today.getDay();
-    //   const daysUntilFriday = (5 - dayOfWeek + 7) % 7;
-    //   const nextFriday = new Date(today);
-    //   nextFriday.setDate(today.getDate() + daysUntilFriday);
-    //   const dd = String(nextFriday.getDate()).padStart(2, '0');
-    //   const mm = String(nextFriday.getMonth() + 1).padStart(2, '0');
-    //   const yyyy = nextFriday.getFullYear();
-    //   return `${dd}/${mm}/${yyyy}`;
-    // });
-    // console.log(`Calculated upcoming Friday as: ${upcomingFriday}`);
-    // console.log('Setting date and clicking Search...');
-    // await page.evaluate((date) => {
-    //     document.querySelector('#fromDate').value = date;
-    //     document.querySelector('#Search').click();
-    // }, upcomingFriday);
-
-    // await page.waitForSelector('#auditLink', { visible: true, timeout: 30000 });
-    // console.log('Search results loaded.');
-
-
-    // --- 10. Download the Report ---
-    // console.log('Clicking the "Slips Audit Report" link...');
-    // await page.click('#auditLink');
-
-    console.log('Waiting for the report iframe to load...');
-    const iframeElementHandle = await page.waitForSelector('iframe[src*="WebReport"]', { visible: true });
-    const frame = await iframeElementHandle.contentFrame();
-    if (!frame) throw new Error('Could not get content frame of the report iframe.');
-
-    console.log('Clicking "Export without Headers" inside the iframe...');
-    await frame.waitForSelector('#links_1', { visible: true });
-    await frame.click('#links_1');
-
-    // Wait for the file to appear in the download directory
-    const downloadedFilePath = await waitForFile(LOCAL_DOWNLOAD_FOLDER);
-    console.log(`✅ File successfully downloaded to: ${downloadedFilePath}`);
-    // No need to save the file, it's already in the correct folder for artifact upload.
-
-
-    // --- 11. Cleanup ---
-    console.log('Attempting to close the report modal if it exists...');
-    try {
-      const closeModalSelector = '.ui-dialog-titlebar-close';
-      await page.waitForSelector(closeModalSelector, { visible: true, timeout: 5000 });
-      await page.click(closeModalSelector);
-      console.log('Report modal closed.');
-    } catch (e) {
-      console.log('Report modal not found or already closed. Continuing...');
+    // Loop through each report config
+    for (const config of configs) {
+      await runOneReport(page, LOCAL_DOWNLOAD_FOLDER, config);
     }
 
+    console.log('All reports completed.');
   } catch (error) {
-    console.error('❌ An error occurred during the automation script:');
+    console.error('❌ Automation error:', error);
     if (page) {
-        const errorScreenshotPath = './error_screenshot.png';
-        try {
-            await page.screenshot({ path: errorScreenshotPath, fullPage: true });
-            console.error(`📷 A final error screenshot has been saved to: ${errorScreenshotPath}`);
-        } catch (e) {
-            console.error('Could not take a final screenshot.', e);
-        }
+      try {
+        await page.screenshot({ path: './error_screenshot.png', fullPage: true });
+        console.error('Saved error screenshot: ./error_screenshot.png');
+      } catch (e) {
+        console.error('Could not save screenshot.', e);
+      }
     }
-    console.error(error);
     process.exit(1);
   } finally {
     if (browser) {
-      console.log('--- Closing browser ---');
+      console.log('Closing browser...');
       await browser.close();
     }
-    console.log('--- Script execution finished ---');
+    console.log('--- Script finished ---');
   }
 })();
