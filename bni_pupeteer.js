@@ -216,6 +216,22 @@ async function setDatesOnPage(page, startDisplay, endDisplay) {
   if (result.error) throw new Error(result.error);
 }
 
+// ✅ Helper: format date for filenames
+function formatDateForFilename(dateStr, type = 'start') {
+  const [dd, mm, yyyy] = dateStr.split('/');
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthAbbr = monthNames[parseInt(mm, 10) - 1];
+
+  if (type === 'start') {
+    return `${monthAbbr}${yyyy.slice(-2)}`;   // e.g. Apr25
+  } else {
+    return `${dd}${monthAbbr}${yyyy.slice(-2)}`; // e.g. 26Sep25
+  }
+}
+
+
+
 /**
  * Runs one report: set dates, click Search, export inside iframe, wait for file, rename, close modal.
  */
@@ -242,8 +258,15 @@ async function runOneReport(page, downloadFolder, cfg) {
   const ext = path.extname(downloadedPath) || '.xls';
   const newPath = path.join(downloadFolder, `${cfg.fileName}${ext}`);
   try {
-    fs.renameSync(downloadedPath, newPath);
+     // ✅ Build filename from display dates
+    const startPart = formatDateForFilename(displayStart, 'start');
+    const endPart = formatDateForFilename(displayEnd, 'end');
+    const targetName = `chapter-palms-report_${startPart}-${endPart}.xls`;
+    
+    const newPath = path.join(downloadPath, targetName);
+    fs.renameSync(downloadedFilePath, newPath);
     console.log(`Renamed downloaded file -> ${newPath}`);
+
   } catch (err) {
     console.warn('Failed to rename file, leaving original name. Error:', err);
   }
