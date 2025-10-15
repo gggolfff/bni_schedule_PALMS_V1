@@ -137,6 +137,7 @@ const waitForFile = (dirPath, timeout = 45000) => {
     await page.waitForSelector(enterPalmsSelector, { visible: true });
     await page.click(enterPalmsSelector);
     console.log('Enter PALMS...');
+    await page.waitForSelector('#finishReviewButton', { visible: true });
     await page.click('#finishReviewButton');
     console.log('Clicked continue...');
     await page.waitForSelector('#fromDate', { visible: true });
