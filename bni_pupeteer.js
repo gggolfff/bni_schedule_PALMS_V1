@@ -133,9 +133,12 @@ const waitForFile = (dirPath, timeout = 45000) => {
     console.log('Navigating through Operations -> Chapter...');
     await page.click('a[href="#ui-tabs-3"]');
     const enterPalmsSelector = 'a[href*="operationsChapterEnterPalms"]';
+    console.log('Waiting to EnterPALMS...');
     await page.waitForSelector(enterPalmsSelector, { visible: true });
     await page.click(enterPalmsSelector);
+    console.log('Enter PALMS...');
     await page.click('#finishReviewButton');
+    console.log('Clicked continue...');
     await page.waitForSelector('#fromDate', { visible: true });
     console.log('Navigated to the PALMS entry page.');
 
