@@ -141,6 +141,32 @@ function getReportDateRanges() {
         filename: `chapter-palms-report_${sixMonthName}${sixMonthYearYY}-${endDateForFilename}`,
     });
 
+    // --- NEW: Report for 5 months rolling ---
+    const fiveMonthsAgo = new Date(recentFriday);
+    fiveMonthsAgo.setMonth(fiveMonthsAgo.getMonth() - 4); // e.g., Oct -> Jun
+    fiveMonthsAgo.setDate(1);
+    const fiveMonthName = fiveMonthsAgo.toLocaleString('en-US', { month: 'short' });
+    const fiveMonthYearYY = String(fiveMonthsAgo.getFullYear()).slice(-2);
+    reports.push({
+        key: '5-months',
+        start: formatDate(fiveMonthsAgo),
+        end: endDate,
+        filename: `chapter-palms-report_${fiveMonthName}${fiveMonthYearYY}-${endDateForFilename}`,
+    });
+
+    // --- NEW: Report for 4 months rolling ---
+    const fourMonthsAgo = new Date(recentFriday);
+    fourMonthsAgo.setMonth(fourMonthsAgo.getMonth() - 3); // e.g., Oct -> Jul
+    fourMonthsAgo.setDate(1);
+    const fourMonthName = fourMonthsAgo.toLocaleString('en-US', { month: 'short' });
+    const fourMonthYearYY = String(fourMonthsAgo.getFullYear()).slice(-2);
+    reports.push({
+        key: '4-months',
+        start: formatDate(fourMonthsAgo),
+        end: endDate,
+        filename: `chapter-palms-report_${fourMonthName}${fourMonthYearYY}-${endDateForFilename}`,
+    });
+
     // --- Report 2: Year-to-date report ---
     const yearStartDate = new Date(yyyy, 0, 1); // January 1st of the current year
     reports.push({
@@ -390,5 +416,6 @@ async function runOneReport(page, report) {
         console.log('--- Script Finished ---');
     }
 })();
+
 
 
