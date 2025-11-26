@@ -91,7 +91,7 @@ jobs:
           # Send to n8n via Webhook
           curl -X POST \
             -F "data=@$FILE_PATH" \
-            ${{ secrets.N8N_WEBHOOK_URL }}
+            ${{ secrets.N8N_WEBHOOK_PRODUCTIONURL }}
 
       # Step 7: Upload the downloaded report on success
       - name: Upload Report Artifact
