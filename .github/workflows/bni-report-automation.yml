@@ -78,7 +78,22 @@ jobs:
           BNI_USERNAME: ${{ secrets.BNI_USERNAME }}
           BNI_PASSWORD: ${{ secrets.BNI_PASSWORD }}
 
-      # Step 6: Upload the downloaded report on success
+      # Step 6: Upload to n8n (NEW STEP)
+      # This searches the 'downloads' folder for the generated file and sends it.
+      - name: Upload File to n8n
+        if: success()
+        run: |
+          # Find the first file inside the downloads folder
+          FILE_PATH=$(find downloads -type f | head -n 1)
+          
+          echo "Found file: $FILE_PATH"
+          
+          # Send to n8n via Webhook
+          curl -X POST \
+            -F "data=@$FILE_PATH" \
+            ${{ secrets.N8N_WEBHOOK_PRODUCTIONURL }}
+
+      # Step 7: Upload the downloaded report on success
       - name: Upload Report Artifact
         if: success()
         uses: actions/upload-artifact@v4
@@ -86,7 +101,7 @@ jobs:
           name: bni-slips-audit-report
           path: downloads/
 
-      # Step 7: Upload debug files ONLY on failure
+      # Step 8: Upload debug files ONLY on failure
       - name: Upload Debug Artifacts on Failure
         if: failure()
         uses: actions/upload-artifact@v4
