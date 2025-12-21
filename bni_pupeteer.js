@@ -190,8 +190,6 @@ function getReportDateRanges() {
     // --- Report 4: Week-to-date (Recent Monday) report ---
     const recentMonday = new Date(recentFriday);
     recentMonday.setDate(recentFriday.getDate() - 4);
-    
-    const weekOfMonth = Math.ceil(recentFriday.getDate() / 7);
 
     reports.push({
         key: 'week-to-date',
