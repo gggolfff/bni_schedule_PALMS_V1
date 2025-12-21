@@ -186,7 +186,21 @@ function getReportDateRanges() {
         end: endDate,
         filename: `chapter-palms-report_${monthName}${yy}-Week${weekOfMonth}`,
     });
+    
+    // --- Report 4: Week-to-date (Recent Monday) report ---
+    const recentMonday = new Date(recentFriday);
+    recentMonday.setDate(recentFriday.getDate() - 4);
 
+    const monthName = recentFriday.toLocaleString('en-US', { month: 'short' });
+    const weekOfMonth = Math.ceil(recentFriday.getDate() / 7);
+
+    reports.push({
+        key: 'week-to-date',
+        start: formatDate(recentMonday),
+        end: endDate,
+        filename: `chapter-palms-report_${monthName}${yy}-Week${weekOfMonth}-MonToFri`,
+    });
+    
     return reports;
 }
 
