@@ -132,6 +132,10 @@ const waitForFile = (dirPath, timeout = 45000) => {
     // --- 8. Navigate to PALMS Report ---
     console.log('Navigating through Operations -> Chapter...');
     await page.click('a[href="#ui-tabs-3"]');
+    // --- ADDED 5 SECOND WAIT ---
+    console.log('Waiting 5 seconds for the UI to stabilize...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    // ---------------------------
     const enterPalmsSelector = 'a[href*="operationsChapterEnterPalms"]';
     console.log('Waiting to EnterPALMS...');
     await page.waitForSelector(enterPalmsSelector, { visible: true });
