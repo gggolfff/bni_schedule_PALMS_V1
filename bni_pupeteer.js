@@ -137,7 +137,7 @@ function getReportDateRanges() {
         key: '6-months',
         start: formatDate(sixMonthsAgo),
         end: endDate,
-        filename: `chapter-palms-report_${sixMonthName}${sixMonthYearYY}-${endDateForFilename}`,
+        filename: `6mth-chapter-palms-report_${sixMonthName}${sixMonthYearYY}-${endDateForFilename}`,
     });
 
     // --- NEW: Report for 5 months rolling ---
@@ -150,7 +150,7 @@ function getReportDateRanges() {
         key: '5-months',
         start: formatDate(fiveMonthsAgo),
         end: endDate,
-        filename: `chapter-palms-report_${fiveMonthName}${fiveMonthYearYY}-${endDateForFilename}`,
+        filename: `5mth-chapter-palms-report_${fiveMonthName}${fiveMonthYearYY}-${endDateForFilename}`,
     });
 
     // --- NEW: Report for 4 months rolling ---
@@ -163,7 +163,7 @@ function getReportDateRanges() {
         key: '4-months',
         start: formatDate(fourMonthsAgo),
         end: endDate,
-        filename: `chapter-palms-report_${fourMonthName}${fourMonthYearYY}-${endDateForFilename}`,
+        filename: `4mth-chapter-palms-report_${fourMonthName}${fourMonthYearYY}-${endDateForFilename}`,
     });
 
     // --- Report 2: Year-to-date report ---
@@ -172,7 +172,7 @@ function getReportDateRanges() {
         key: 'year-to-date',
         start: formatDate(yearStartDate),
         end: endDate,
-        filename: `chapter-palms-report_YTD-${endDateForFilename}`,
+        filename: `y2d-chapter-palms-report_YTD-${endDateForFilename}`,
     });
 
     // --- Report 3: Month-to-date report ---
@@ -183,7 +183,7 @@ function getReportDateRanges() {
         key: 'month-to-date',
         start: formatDate(monthStartDate),
         end: endDate,
-        filename: `chapter-palms-report_${monthName}${yy}-Week${weekOfMonth}`,
+        filename: `m2d-chapter-palms-report_${monthName}${yy}-Week${weekOfMonth}`,
     });
     
     // --- Report 4: Week-to-date (Recent Monday) report ---
@@ -194,7 +194,7 @@ function getReportDateRanges() {
         key: 'week-to-date',
         start: formatDate(recentMonday),
         end: endDate,
-        filename: `chapter-palms-report_${monthName}${yy}-Weekly${weekOfMonth}-Dashboard`,
+        filename: `w2d-chapter-palms-report_${monthName}${yy}-Weekly${weekOfMonth}-Dashboard`,
     });
 
     // --- NEW: Report for 3 months rolling (Conditional: Last Week of Month) ---
@@ -215,7 +215,7 @@ function getReportDateRanges() {
             key: '3-months',
             start: formatDate(threeMonthsAgo),
             end: endDate,
-            filename: `chapter-palms-report_${threeMonthName}${threeMonthYearYY}-${endDateForFilename}`,
+            filename: `3mth-chapter-palms-report_${threeMonthName}${threeMonthYearYY}-${endDateForFilename}`,
         });
     }
 
