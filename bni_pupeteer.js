@@ -196,6 +196,8 @@ function getReportDateRanges() {
         start: formatDate(recentMonday),
         end: endDate,
         filename: `w2d-chapter-palms-report_${monthName}${yy}-Weekly${weekOfMonth}-Dashboard`,
+    });
+
     
     // --- NEW: Report for 3 months rolling (Conditional: Last Week of Month) ---
     // Calculate total days in the current month by asking for the "0th" day of the next month
