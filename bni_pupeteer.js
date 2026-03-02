@@ -128,22 +128,21 @@ function getReportDateRanges() {
     const reports = [];
 
     // --- Report 1: Rolling 6-month report ---
-    // (Starts from the 1st of the month, 6 months prior to the end date)
     const sixMonthsAgo = new Date(recentFriday);
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5); // e.g., Oct -> May
-    sixMonthsAgo.setDate(1); // Set to the 1st of that month
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5); 
+    sixMonthsAgo.setDate(1); 
     const sixMonthName = sixMonthsAgo.toLocaleString('en-US', { month: 'short' });
     const sixMonthYearYY = String(sixMonthsAgo.getFullYear()).slice(-2);
     reports.push({
         key: '6-months',
         start: formatDate(sixMonthsAgo),
         end: endDate,
-        filename: `6mth-chapter-palms-report_${sixMonthName}${sixMonthYearYY}-${endDateForFilename}`,
+        filename: `chapter-palms-report_${sixMonthName}${sixMonthYearYY}-${endDateForFilename}`,
     });
 
     // --- NEW: Report for 5 months rolling ---
     const fiveMonthsAgo = new Date(recentFriday);
-    fiveMonthsAgo.setMonth(fiveMonthsAgo.getMonth() - 4); // e.g., Oct -> Jun
+    fiveMonthsAgo.setMonth(fiveMonthsAgo.getMonth() - 4); 
     fiveMonthsAgo.setDate(1);
     const fiveMonthName = fiveMonthsAgo.toLocaleString('en-US', { month: 'short' });
     const fiveMonthYearYY = String(fiveMonthsAgo.getFullYear()).slice(-2);
@@ -151,12 +150,12 @@ function getReportDateRanges() {
         key: '5-months',
         start: formatDate(fiveMonthsAgo),
         end: endDate,
-        filename: `5mth-chapter-palms-report_${fiveMonthName}${fiveMonthYearYY}-${endDateForFilename}`,
+        filename: `chapter-palms-report_${fiveMonthName}${fiveMonthYearYY}-${endDateForFilename}`,
     });
 
     // --- NEW: Report for 4 months rolling ---
     const fourMonthsAgo = new Date(recentFriday);
-    fourMonthsAgo.setMonth(fourMonthsAgo.getMonth() - 3); // e.g., Oct -> Jul
+    fourMonthsAgo.setMonth(fourMonthsAgo.getMonth() - 3); 
     fourMonthsAgo.setDate(1);
     const fourMonthName = fourMonthsAgo.toLocaleString('en-US', { month: 'short' });
     const fourMonthYearYY = String(fourMonthsAgo.getFullYear()).slice(-2);
@@ -164,16 +163,16 @@ function getReportDateRanges() {
         key: '4-months',
         start: formatDate(fourMonthsAgo),
         end: endDate,
-        filename: `4mth-chapter-palms-report_${fourMonthName}${fourMonthYearYY}-${endDateForFilename}`,
+        filename: `chapter-palms-report_${fourMonthName}${fourMonthYearYY}-${endDateForFilename}`,
     });
 
     // --- Report 2: Year-to-date report ---
-    const yearStartDate = new Date(yyyy, 0, 1); // January 1st of the current year
+    const yearStartDate = new Date(yyyy, 0, 1); 
     reports.push({
         key: 'year-to-date',
         start: formatDate(yearStartDate),
         end: endDate,
-        filename: `4mth-chapter-palms-report_YTD-${endDateForFilename}`,
+        filename: `chapter-palms-report_YTD-${endDateForFilename}`,
     });
 
     // --- Report 3: Month-to-date report ---
@@ -184,7 +183,7 @@ function getReportDateRanges() {
         key: 'month-to-date',
         start: formatDate(monthStartDate),
         end: endDate,
-        filename: `m2d-chapter-palms-report_${monthName}${yy}-Week${weekOfMonth}`,
+        filename: `chapter-palms-report_${monthName}${yy}-Week${weekOfMonth}`,
     });
     
     // --- Report 4: Week-to-date (Recent Monday) report ---
@@ -195,10 +194,9 @@ function getReportDateRanges() {
         key: 'week-to-date',
         start: formatDate(recentMonday),
         end: endDate,
-        filename: `w2d-chapter-palms-report_${monthName}${yy}-Weekly${weekOfMonth}-Dashboard`,
+        filename: `chapter-palms-report_${monthName}${yy}-Weekly${weekOfMonth}-Dashboard`,
     });
 
-    
     // --- NEW: Report for 3 months rolling (Conditional: Last Week of Month) ---
     // Calculate total days in the current month by asking for the "0th" day of the next month
     const daysInCurrentMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
@@ -208,7 +206,7 @@ function getReportDateRanges() {
 
     if (isLastWeekOfMonth) {
         const threeMonthsAgo = new Date(recentFriday);
-        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 2); // e.g., Oct -> Aug (Aug, Sep, Oct = 3 months)
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 2); 
         threeMonthsAgo.setDate(1);
         const threeMonthName = threeMonthsAgo.toLocaleString('en-US', { month: 'short' });
         const threeMonthYearYY = String(threeMonthsAgo.getFullYear()).slice(-2);
@@ -217,12 +215,12 @@ function getReportDateRanges() {
             key: '3-months',
             start: formatDate(threeMonthsAgo),
             end: endDate,
-            filename: `3mth-chapter-palms-report_${threeMonthName}${threeMonthYearYY}-${endDateForFilename}`,
-    });
-    
+            filename: `chapter-palms-report_${threeMonthName}${threeMonthYearYY}-${endDateForFilename}`,
+        });
+    }
+
     return reports;
 }
-
 
 /**
  * Sets the visible and hidden date fields on the PALMS report page.
@@ -449,6 +447,3 @@ async function runOneReport(page, report) {
         console.log('--- Script Finished ---');
     }
 })();
-
-
-
