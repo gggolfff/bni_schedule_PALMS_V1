@@ -78,21 +78,31 @@ jobs:
           BNI_USERNAME: ${{ secrets.BNI_USERNAME }}
           BNI_PASSWORD: ${{ secrets.BNI_PASSWORD }}
 
-      # Step 5.5: Upload to n8n (NEW STEP)
-      # This searches the 'downloads' folder for the generated file and sends it.
-      - name: Upload File to n8n
+      # Step 5.5: Upload to n8n (UPDATED STEP)
+      # This searches the 'downloads' folder for ALL files and sends them.
+      - name: Upload Files to n8n
         if: success()
         run: |
-          # Find the first file inside the downloads folder
-          FILE_PATH=$(find downloads -type f | head -n 1)
+          CURL_ARGS=()
           
-          echo "Found file: $FILE_PATH"
+          # Loop through every file in the downloads folder
+          for FILE_PATH in downloads/*; do
+            if [ -f "$FILE_PATH" ]; then
+              echo "Attaching file: $FILE_PATH"
+              
+              # Extract just the filename to use as the n8n property key
+              FILENAME=$(basename "$FILE_PATH")
+              
+              # Add it to the curl arguments
+              CURL_ARGS+=("-F" "$FILENAME=@$FILE_PATH")
+            fi
+          done
           
-          # Send to n8n via Webhook
-          curl -X POST \
-            -F "data=@$FILE_PATH" \
+          echo "Sending all files to n8n..."
+          
+          # Send to n8n via Webhook with all files attached dynamically
+          curl -X POST "${CURL_ARGS[@]}" \
             ${{ secrets.BNI_REPORT_TESTHOOK }}
-
 
       # Step 6: Upload the downloaded report on success
       - name: Upload Report Artifact
