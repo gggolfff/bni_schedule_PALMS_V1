@@ -17,11 +17,11 @@ jobs:
     steps:
       # Step 1: Check out your repository code
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.0
 
       # Step 2: Set up Node.js environment
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.1.0
         with:
           node-version: '20'
 
@@ -96,7 +96,7 @@ jobs:
       # Step 7: Upload the downloaded report on success
       - name: Upload Report Artifact
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.4.0
         with:
           name: bni-slips-audit-report
           path: downloads/
@@ -104,7 +104,7 @@ jobs:
       # Step 8: Upload debug files ONLY on failure
       - name: Upload Debug Artifacts on Failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.4.0
         with:
           name: debug-artifacts
           # Upload any .png or .html file from the root directory
