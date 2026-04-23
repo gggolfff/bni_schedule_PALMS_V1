@@ -6,9 +6,9 @@ on:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-  # Schedule the workflow to run every Thursday at 11:45 AM UTC (6:45 PM Bangkok Time)
+  # Schedule the workflow to run every Thursday at 11:30 AM UTC (6:30 PM Bangkok Time)
   schedule:
-    - cron: '45 11 * * 4'
+    - cron: '30 11 * * 4'
 
 jobs:
   run-bni-script:
