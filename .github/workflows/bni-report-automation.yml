@@ -102,7 +102,7 @@ jobs:
           
           # Send to n8n via Webhook with all files attached dynamically
           curl -X POST "${CURL_ARGS[@]}" \
-            ${{ secrets.BNI_REPORT_TESTHOOK }}
+            ${{ secrets.BNI_REPORT_PRODUCTIONHOOK }}
 
       # Step 6: Upload the downloaded report on success
       - name: Upload Report Artifact
