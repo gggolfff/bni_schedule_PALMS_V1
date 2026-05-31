@@ -120,6 +120,18 @@ function getReportDateRanges() {
         return `${dd}${monthAbbr}${yy}`;
     };
 
+    /**
+     * Returns the first day of the month N months before a reference date.
+     * Using new Date(y, m, 1) normalizes month underflow across year
+     * boundaries, and day 1 exists in every month, so the setMonth
+     * day-overflow bug (e.g. "Feb 30" rolling into March) cannot occur.
+     * @param {Date} refDate - The reference date.
+     * @param {number} monthsAgo - How many months back to go.
+     * @returns {Date}
+     */
+    const firstOfMonthsAgo = (refDate, monthsAgo) =>
+        new Date(refDate.getFullYear(), refDate.getMonth() - monthsAgo, 1);
+
     const endDate = formatDate(recentFriday);
     const yyyy = recentFriday.getFullYear();
     const yy = String(yyyy).slice(-2);
@@ -128,9 +140,7 @@ function getReportDateRanges() {
     const reports = [];
 
     // --- Report 1: Rolling 6-month report ---
-    const sixMonthsAgo = new Date(recentFriday);
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5); 
-    sixMonthsAgo.setDate(1); 
+    const sixMonthsAgo = firstOfMonthsAgo(recentFriday, 5);
     const sixMonthName = sixMonthsAgo.toLocaleString('en-US', { month: 'short' });
     const sixMonthYearYY = String(sixMonthsAgo.getFullYear()).slice(-2);
     reports.push({
@@ -141,9 +151,7 @@ function getReportDateRanges() {
     });
 
     // --- NEW: Report for 5 months rolling ---
-    const fiveMonthsAgo = new Date(recentFriday);
-    fiveMonthsAgo.setMonth(fiveMonthsAgo.getMonth() - 4); 
-    fiveMonthsAgo.setDate(1);
+    const fiveMonthsAgo = firstOfMonthsAgo(recentFriday, 4);
     const fiveMonthName = fiveMonthsAgo.toLocaleString('en-US', { month: 'short' });
     const fiveMonthYearYY = String(fiveMonthsAgo.getFullYear()).slice(-2);
     reports.push({
@@ -154,9 +162,7 @@ function getReportDateRanges() {
     });
 
     // --- NEW: Report for 4 months rolling ---
-    const fourMonthsAgo = new Date(recentFriday);
-    fourMonthsAgo.setMonth(fourMonthsAgo.getMonth() - 3); 
-    fourMonthsAgo.setDate(1);
+    const fourMonthsAgo = firstOfMonthsAgo(recentFriday, 3);
     const fourMonthName = fourMonthsAgo.toLocaleString('en-US', { month: 'short' });
     const fourMonthYearYY = String(fourMonthsAgo.getFullYear()).slice(-2);
     reports.push({
@@ -205,9 +211,7 @@ function getReportDateRanges() {
     const isLastWeekOfMonth = (daysInCurrentMonth - today.getDate()) < 7;
 
     if (isLastWeekOfMonth) {
-        const threeMonthsAgo = new Date(recentFriday);
-        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 2); 
-        threeMonthsAgo.setDate(1);
+        const threeMonthsAgo = firstOfMonthsAgo(recentFriday, 2);
         const threeMonthName = threeMonthsAgo.toLocaleString('en-US', { month: 'short' });
         const threeMonthYearYY = String(threeMonthsAgo.getFullYear()).slice(-2);
         
