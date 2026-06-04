@@ -8,7 +8,7 @@ on:
 
   # Schedule the workflow to run every Thursday at 11:30 AM UTC (6:30 PM Bangkok Time)
   schedule:
-    - cron: '30 11 * * 4'
+    - cron: '30 10 * * 4'
 
 jobs:
   run-bni-script:
