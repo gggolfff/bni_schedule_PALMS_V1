@@ -144,6 +144,10 @@ const waitForFile = (dirPath, timeout = 45000) => {
     await page.waitForSelector('#finishReviewButton', { visible: true });
     await page.click('#finishReviewButton');
     console.log('Clicked continue...');
+    // --- ADDED 5 SECOND WAIT ---
+    console.log('Waiting 5 seconds for the UI to stabilize...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    // ---------------------------
     await page.waitForSelector('#fromDate', { visible: true });
     console.log('Navigated to the PALMS entry page.');
 
