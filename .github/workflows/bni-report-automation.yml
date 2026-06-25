@@ -4,11 +4,13 @@ name: BNI PALMS Report Automation
 
 on:
   # Allows you to run this workflow manually from the Actions tab,
-  # and to be triggered by an external scheduler (Claude routine) via
-  # the workflow_dispatch API. The previous `schedule:` cron was removed
-  # because GitHub Actions cron runs in UTC only and drifted from the
-  # intended 6:30 PM Bangkok (UTC+7) run time. Scheduling is now handled
-  # by a Claude routine that fires in the correct local timezone.
+  # and to be triggered by an external scheduler (n8n) via the
+  # workflow_dispatch API. The previous `schedule:` cron was removed
+  # because GitHub Actions cron runs in UTC only and is best-effort
+  # (it was firing hours late), which drifted from the intended
+  # 6:30 PM Bangkok (UTC+7) run time. Scheduling is now handled by an
+  # n8n cron (Asia/Bangkok timezone) every Thursday at 6:30 PM that
+  # POSTs a workflow_dispatch event to this workflow.
   workflow_dispatch:
 
 jobs:
