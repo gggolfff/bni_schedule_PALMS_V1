@@ -26,7 +26,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4.2.0
         with:
-          node-version: '20'
+          node-version: '22'
 
       # Step 3: Install Chromium dependencies required by Puppeteer
       - name: Install Chromium Dependencies
