@@ -20,11 +20,11 @@ jobs:
     steps:
       # Step 1: Check out your repository code
       - name: Check out repository
-        uses: actions/checkout@v4.2.1
+        uses: actions/checkout@v4.3.1
 
       # Step 2: Set up Node.js environment
       - name: Set up Node.js
-        uses: actions/setup-node@v4.2.0
+        uses: actions/setup-node@v4.3.0
         with:
           node-version: '22'
 
