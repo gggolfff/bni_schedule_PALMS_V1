@@ -140,7 +140,11 @@ const waitForFile = (dirPath, timeout = 45000) => {
     console.log('Waiting to EnterPALMS...');
     await page.waitForSelector(enterPalmsSelector, { visible: true });
     await page.click(enterPalmsSelector);
-    console.log('Enter PALMS...');
+    console.log('Enter PALMS...');   
+    // --- ADDED 5 SECOND WAIT ---
+    console.log('Waiting 5 seconds to enter palm...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    // ---------------------------
     await page.waitForSelector('#finishReviewButton', { visible: true });
     await page.click('#finishReviewButton');
     console.log('Clicked continue...');
