@@ -204,11 +204,16 @@ function getReportDateRanges() {
     });
 
     // --- NEW: Report for 3 months rolling (Conditional: Last Week of Month) ---
-    // Calculate total days in the current month by asking for the "0th" day of the next month
-    const daysInCurrentMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    // Calculate total days in recentFriday's month by asking for the "0th" day of the next month.
+    // IMPORTANT: this must anchor on recentFriday (the report's target date), not `today`
+    // (the day the Action happens to execute). If the workflow runs a day or more after the
+    // meeting's Friday, `today` can already be in the next month, which silently skips this
+    // report on exactly the runs it's meant to fire for (e.g. Fri Jul 31 meeting, Action
+    // runs Mon Aug 3 -> checking against August's days-remaining instead of July's).
+    const daysInCurrentMonth = new Date(recentFriday.getFullYear(), recentFriday.getMonth() + 1, 0).getDate();
     
-    // If the difference between the total days and today's date is less than 7, it's the last week
-    const isLastWeekOfMonth = (daysInCurrentMonth - today.getDate()) < 7;
+    // If the difference between the total days and recentFriday's date is less than 7, it's the last week
+    const isLastWeekOfMonth = (daysInCurrentMonth - recentFriday.getDate()) < 7;
 
     if (isLastWeekOfMonth) {
         const threeMonthsAgo = firstOfMonthsAgo(recentFriday, 2);
