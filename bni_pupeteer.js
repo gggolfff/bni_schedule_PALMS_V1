@@ -224,7 +224,7 @@ function getReportDateRanges() {
             key: '3-months',
             start: formatDate(threeMonthsAgo),
             end: endDate,
-            filename: `3mth-chapter-palms-report_${threeMonthName}${threeMonthYearYY}-${endDateForFilename}`,
+            filename: `7mth-chapter-palms-report_${threeMonthName}${threeMonthYearYY}-${endDateForFilename}`,
         });
     }
 
